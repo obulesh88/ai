@@ -21,3 +21,8 @@
 
 ## Next task
 - Once the project is available and Ollama reachable: test /api/tags and a qwen3-coder-local:latest chat call, then add a minimal Ollama client with tests.
+
+## Segment 1 (Python foundation + Ollama chat) - done in sandbox
+- Python 3.11.2, pip 23.0.1, 16G disk free, workspace writable. pytest absent -> unittest used.
+- Real Ollama unreachable in sandbox; 10 unit tests pass using a fake server; CLI run verified with fake server and with Ollama down.
+- Not verified: real Ollama / your models.

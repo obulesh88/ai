@@ -1,0 +1,2 @@
+# Segment 1 uses only the Python standard library (Python 3.9+).
+# Tests use the built-in unittest. Later segments will add packages here.
