@@ -26,3 +26,8 @@
 - Python 3.11.2, pip 23.0.1, 16G disk free, workspace writable. pytest absent -> unittest used.
 - Real Ollama unreachable in sandbox; 10 unit tests pass using a fake server; CLI run verified with fake server and with Ollama down.
 - Not verified: real Ollama / your models.
+
+## Segment 2 (Desktop interface) - PAUSED by user
+- Sandbox cannot install PySide6 (pip SSL certificate verification fails) and has no tkinter, so a GUI can't be built or tested here.
+- User decision: resume on the Windows PC, where PySide6 can be installed and tested.
+- No Segment 2 code written. Segment 1 is unchanged.
