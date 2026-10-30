@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .venv/
 .qtlibs/
+data/*.db
+backups/
+workspace/
