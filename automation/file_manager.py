@@ -32,10 +32,40 @@ class BackupManager:
 
 
 class FileManager:
-    def __init__(self, guard, approvals, backups: BackupManager):
+    def __init__(self, guard, approvals, backups: BackupManager, undo=None):
         self.guard = guard
         self.approvals = approvals
         self.backups = backups
+        self.undo = undo          # optional core.undo.UndoStack
+
+    # --- undo bookkeeping -----------------------------------------
+    def _relative(self, target: Path) -> str:
+        try:
+            return str(target.relative_to(self.guard.root)).replace("\\", "/")
+        except ValueError:
+            return target.name
+
+    def _record_restore(self, label: str, target: Path, backup: Path) -> None:
+        if self.undo is None:
+            return
+        backups = self.backups
+
+        def reverse():
+            backups.restore(backup, target)
+            return f"restored {target.name}"
+
+        self.undo.push(label, reverse, verify=lambda: target.exists())
+
+    def _record_created(self, label: str, target: Path) -> None:
+        if self.undo is None:
+            return
+
+        def reverse():
+            if target.exists():
+                target.unlink()
+            return f"removed {target.name}"
+
+        self.undo.push(label, reverse, verify=lambda: not target.exists())
 
     def read(self, path) -> str:
         return self.guard.resolve(path).read_text(encoding="utf-8", errors="replace")
@@ -48,7 +78,10 @@ class FileManager:
         if target.exists():
             if approve_overwrite:
                 self.approvals.require("overwrite-file", str(target))
-            self.backups.backup(target)
+            backup = self.backups.backup(target)
+            self._record_restore(f"overwrite {self._relative(target)}", target, backup)
+        else:
+            self._record_created(f"create {self._relative(target)}", target)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return target
@@ -63,6 +96,7 @@ class FileManager:
             shutil.rmtree(target)
         else:
             target.unlink()
+        self._record_restore(f"delete {self._relative(target)}", target, backup)
         return backup
 
     def list(self, sub="") -> List[str]:

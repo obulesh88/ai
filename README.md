@@ -71,7 +71,7 @@ curl http://127.0.0.1:11434/api/tags
 ```
 python -m unittest discover -s . -t . -p "test_*.py" -v
 ```
-104 tests (15 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
+127 tests (15 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
 
 ## What works (verified)
 | Area | Module | Verified by |
@@ -86,6 +86,8 @@ python -m unittest discover -s . -t . -p "test_*.py" -v
 | Unity/Unreal/MCP project work | `game_development/` | unit tests (file level) |
 | Self-update with backup + rollback | `core/self_update.py` | unit tests |
 | Dragon Tiger statistics | `analytics/` | unit tests |
+| Undo for file actions + outcome reporting | `core/undo.py`, `core/outcome.py` | 23 tests |
+| Drop-in plugins (`plugins/`) | `core/plugin_loader.py` | 23 tests |
 | Voice wake word + controller | `voice/` | unit tests (no real mic/TTS here) |
 | End-to-end command routing | `core/hema.py`, `main.py` | integration + CLI run |
 
@@ -113,8 +115,32 @@ plan: <request>            show tasks            remember: <fact>
 recall <text>              forget <id>            inspect: <path>
 open <app>                 run: <command>         list processes
 dragon|tiger|tie result    dragon tiger stats     run with windows
-update yourself
+update yourself            undo                   undo history
+list plugins               run plugin <name> <text or JSON args>
 ```
+
+## Undo, plugins and outcomes
+- **Undo** - every file HEMA creates, overwrites or deletes can be taken back. Each action
+  records its own reversal (backup restore or file removal), and `undo` reports
+  `[done]` / `[unverified]` / `[failed]` instead of assuming it worked.
+- **Plugins** - drop a `.py` file in `plugins/` declaring `TOOL` + `run(args, ctx)` and it is
+  loaded at startup. Invalid or broken plugins are reported and skipped, never fatal; the
+  name must be snake_case and cannot shadow built-ins. `plugins/_template.py` is the guide.
+  Plugins are ordinary Python with HEMA's permissions, so only put your own code there.
+  The bundled `note_taker.py` (`run plugin note buy milk`) writes `workspace/notes.md`
+  through the same guard/backup/undo path as everything else.
+- **Outcomes** - things built after this change return `core.outcome.Result`
+  (`done` / `unverified` / `failed`). A plugin that raises or returns nothing is never
+  spoken as a success.
+
+## Inspiration and licensing
+`core/undo.py`, `core/outcome.py`, `core/plugin_loader.py` and `plugins/` were written for
+HEMA after studying the feature list of **[Mark LVI](https://github.com/FatihMakes/Mark-LVI)**
+by FatihMakes (CC BY-NC 4.0, non-commercial). **No code was copied or adapted from that
+project**; only the ideas were used, and they are reimplemented against HEMA's own
+guard/approval/audit architecture. Mark is Gemini-Live based with a 3D head avatar, phone
+dashboard and ~45 skills; HEMA stays local-first (Ollama) and deliberately implements fewer
+features, each with tests.
 
 ## Safety
 - All file access is restricted to `workspace/` (env `HEMA_WORKSPACE`).

@@ -89,3 +89,36 @@ rendered from the real window at 1440x900 and at the 1180x740 minimum size.
 
 Still NOT verified: real Ollama (all demos use a local fake server), Unity/Unreal editor
 automation (needs MCP + editor), real microphone/TTS.
+
+
+## Mark LVI review (requested) - features adopted, independently implemented
+Inspected https://github.com/FatihMakes/Mark-LVI (Mark LVI 56, FatihMakes): ~2.8 MB repo,
+main.py 134 KB, ui.py 317 KB, 21 action modules, providers/ with STT/TTS/LLM registries,
+dashboard/ (phone dashboard), core/ (wake_word, viseme, avatar, undo, confirm, stt, tts,
+gemini, installer, plugin_loader), memory/memory_manager. License: CC BY-NC 4.0
+(attribution, non-commercial).
+
+Decision: no code copied. Its 400 KB single-app design (PyQt6 + Gemini Live + 3D head +
+~45 skills) does not fit HEMA's guarded, test-per-feature architecture. Three ideas were
+adopted and reimplemented from scratch:
+1. Undo for performed actions -> core/undo.py, integrated with automation/file_manager.py
+   (create / overwrite / delete are reversible; every undo reports done/unverified/failed).
+2. "Says what it checked" -> core/outcome.py (Result with Outcome.DONE/UNVERIFIED/FAILED).
+3. Self-describing drop-in skills -> core/plugin_loader.py + plugins/ (TOOL dict + run(),
+   validated snake_case names, reserved-name protection, broken plugins skipped and
+   reported), plus a real bundled plugin (plugins/note_taker.py).
+Wired into the assistant: new intents "undo", "undo history", "list plugins",
+"run plugin <name> [text|JSON]" (plugin_run is matched before the generic "run:" intent).
+
+Verified: 23 new tests in tests/test_undo_plugins.py; full suite 127 tests OK (venv with
+PySide6) and 127 OK / 15 skipped (system python). CLI run confirms: list plugins -> note
+plugin creates workspace/notes.md -> undo removes it -> second undo says "Nothing to undo";
+an overwrite without approval returns [failed] instead of a false success.
+
+Not adopted, and why: Gemini Live realtime voice (paid API, breaks the local-only rule),
+3D head/lip-sync avatar (PyQt6+numpy, very large scope), phone dashboard, ~40 network
+skills (weather, flights, YouTube, browser control), OS task-scheduler reminders (needs
+system permission - would require explicit approval each time).
+
+Next candidates: reminders with approval-gated OS scheduling, clipboard actions, system
+alert thresholds in the dashboard, plugin list in the GUI Tools page.

@@ -20,6 +20,10 @@ PATTERNS = (
     ("forget", r"^(hey hema[, ]*)?forget( memory)?\s+(\d+)$"),
     ("inspect", r"^(hey hema[, ]*)?inspect( project)?[:\s]+(.+)$"),
     ("open_app", r"^(hey hema[, ]*)?(open|launch|start)\s+([\w .-]+)$"),
+    ("undo_history", r"^(hey hema[, ]*)?(what can you undo|undo history|undo list)$"),
+    ("undo", r"^(hey hema[, ]*)?undo( last)?$"),
+    ("plugin_list", r"^(hey hema[, ]*)?(list|show)( me)?( the)? plugins$"),
+    ("plugin_run", r"^(hey hema[, ]*)?(?:run|use|execute)\s+plugin\s+([a-z0-9_]+)\s*(.*)$"),
     ("run_command", r"^(hey hema[, ]*)?run( command)?[:\s]+(.+)$"),
     ("processes", r"^(hey hema[, ]*)?(list processes|processes)\s*(.*)$"),
     ("dt_record", r"^(hey hema[, ]*)?(dragon|tiger|tie)\s+result$"),
@@ -46,6 +50,9 @@ def route(text: str) -> Intent:
             return Intent(kind, {"id": groups[-1]}, cleaned)
         if kind in ("recall", "inspect", "run_command"):
             return Intent(kind, {"text": groups[-1].strip()}, cleaned)
+        if kind == "plugin_run":
+            rest = (groups[1] if len(groups) > 1 else "").strip()
+            return Intent(kind, {"name": groups[0], "args": rest}, cleaned)
         if kind == "plan":
             return Intent(kind, {"request": groups[-1].strip()}, cleaned)
         if kind == "open_app":

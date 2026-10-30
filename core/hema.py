@@ -17,6 +17,8 @@ from core.assistant import Assistant
 from core.command_router import route
 from core.executor import TaskExecutor
 from core.planner import Planner
+from core.plugin_loader import PluginContext, PluginRegistry
+from core.undo import UndoStack
 from core.self_update import SelfUpdater
 from core.task_manager import TaskManager
 from game_development import mcp_integration
@@ -37,7 +39,8 @@ class Hema:
         self.memory = MemoryManager(self.data_dir / "hema_memory.db")
         self.tasks = TaskManager(self.data_dir / "hema_tasks.db")
         self.dt = DragonTigerStore(self.data_dir / "dragon_tiger.db")
-        self.files = FileManager(self.guard, self.approvals, self.backups)
+        self.undo = UndoStack(max_items=25)
+        self.files = FileManager(self.guard, self.approvals, self.backups, undo=self.undo)
         self.editor = CodeEditor(self.files)
         self.commands = CommandRunner(self.approvals, self.guard)
         self.apps = AppManager(self.approvals)
@@ -45,6 +48,11 @@ class Hema:
         self.planner = Planner(lambda msgs: self._chat_once(msgs))
         self.self_updater = SelfUpdater(Path(__file__).resolve().parent.parent,
                                        self.approvals, self.backups)
+        self.plugin_dir = Path(config.base_dir) / "plugins"
+        self.plugins = PluginRegistry()
+        self.plugin_problems = self.plugins.load_directory(self.plugin_dir)
+        self.plugin_ctx = PluginContext(root=self.guard.root, files=self.files,
+                                        memory=self.memory)
         self.recovered = self.tasks.recover()
 
     # ---- helpers -------------------------------------------------
@@ -104,12 +112,48 @@ class Hema:
     def _do_empty(self, intent):
         return ""
 
+    def _do_undo(self, intent):
+        result = self.undo.undo_last()
+        self.audit.record("undo", result.detail, result.outcome.value)
+        return result.speak()
+
+    def _do_undo_history(self, intent):
+        history = self.undo.history()
+        if not history:
+            return "Nothing to undo yet."
+        return "Undoable actions (newest first):\n" + "\n".join(
+            f"{index}. {label}" for index, label in enumerate(history, start=1))
+
+    def _do_plugin_list(self, intent):
+        described = self.plugins.describe()
+        lines = [f"{len(described)} plugin(s) loaded from {self.plugin_dir}"]
+        for plugin in described:
+            lines.append(f"- {plugin['name']}: {plugin['description'][:90]}")
+        if self.plugin_problems:
+            lines.append("Skipped: " + "; ".join(self.plugin_problems))
+        return "\n".join(lines)
+
+    def _do_plugin_run(self, intent):
+        name = intent.args["name"]
+        raw = intent.args.get("args", "")
+        args = {}
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                args = parsed if isinstance(parsed, dict) else {"text": raw}
+            except ValueError:
+                args = {"text": raw}
+        result = self.plugins.run(name, args, self.plugin_ctx)
+        self.audit.record(f"plugin:{name}", result.detail[:200], result.outcome.value)
+        return result.speak()
+
     def _do_help(self, intent):
         return (
             "I can: chat, 'plan: <request>', 'show tasks', 'remember: <fact>', "
             "'recall <text>', 'forget <id>', 'inspect: <path>', 'open <app>', "
             "'run: <command>', 'list processes', 'dragon|tiger|tie result', "
-            "'dragon tiger stats', 'run with windows', 'update yourself'."
+            "'dragon tiger stats', 'run with windows', 'update yourself', "
+            "'undo', 'undo history', 'list plugins', 'run plugin <name> <text>'."
         )
 
     def _do_remember(self, intent):
