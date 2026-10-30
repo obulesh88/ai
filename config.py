@@ -24,6 +24,11 @@ class Config:
     timeout: float
     max_context_messages: int
     system_prompt: str
+    workspace_dir: Path = BASE_DIR / "workspace"
+    data_dir: Path = BASE_DIR / "data"
+    logs_dir: Path = BASE_DIR / "logs"
+    backups_dir: Path = BASE_DIR / "backups"
+    mcp_config: str = ""
 
 
 def load_config() -> Config:
@@ -37,4 +42,6 @@ def load_config() -> Config:
             "HEMA_SYSTEM_PROMPT",
             "You are HEMA, a helpful personal AI assistant running locally.",
         ),
+        workspace_dir=Path(os.environ.get("HEMA_WORKSPACE", str(BASE_DIR / "workspace"))),
+        mcp_config=os.environ.get("HEMA_MCP_CONFIG", ""),
     )
