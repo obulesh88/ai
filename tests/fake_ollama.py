@@ -18,6 +18,10 @@ def start_server(models=("llama:latest",), delay=0.0):
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path == "/api/version":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"version": "0.0.0-fake"}).encode())
             else:
                 self.send_response(404)
                 self.end_headers()

@@ -3,6 +3,7 @@
 Usage:
     python main.py          text console
     python main.py --gui    desktop interface (needs PySide6)
+    python main.py --doctor check environment and Ollama connectivity
 """
 import logging
 import sys
@@ -109,10 +110,25 @@ def run_gui() -> int:
     return start_gui(HemaController(hema))
 
 
+def run_doctor() -> int:
+    from core.doctor import format_report, run_checks
+    config = load_config()
+    report = format_report(run_checks(config))
+    print(report)
+    try:
+        Path(config.logs_dir).mkdir(parents=True, exist_ok=True)
+        (Path(config.logs_dir) / "doctor.txt").write_text(report, encoding="utf-8")
+    except OSError:
+        pass
+    return 0 if "All critical checks passed" in report else 1
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     config = load_config()
     setup_logging(Path(config.logs_dir))
+    if "--doctor" in argv or "--check" in argv:
+        return run_doctor()
     if "--gui" in argv or "--desktop" in argv:
         return run_gui()
     hema = Hema(config, cli_approver)

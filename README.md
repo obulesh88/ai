@@ -11,15 +11,28 @@ python -m venv .venv
 pip install -r requirements.txt   # core needs nothing extra
 copy .env.example .env            # optional: edit model / host
 ollama serve                      # in another window, if not already running
+python main.py --doctor           # check environment + Ollama, writes logs/doctor.txt
 python main.py                    # text console
 python main.py --gui              # desktop interface (needs: pip install PySide6)
+```
+
+## Troubleshooting
+Run `python main.py --doctor`. It reports Python, whether port 11434 is open, the Ollama
+version, installed models, whether your preferred model exists, folder permissions, disk
+space and optional packages. Exit code is 0 only when all critical checks pass.
+
+If "Ollama port" fails on your PC:
+```
+ollama serve            # then open http://127.0.0.1:11434 in a browser
+ollama list             # shows installed models
+curl http://127.0.0.1:11434/api/tags
 ```
 
 ## Tests
 ```
 python -m unittest discover -s . -t . -p "test_*.py" -v
 ```
-79 tests. They use a fake local Ollama server, so they run without Ollama.
+82 tests. They use a fake local Ollama server, so they run without Ollama.
 
 ## What works (verified)
 | Area | Module | Verified by |

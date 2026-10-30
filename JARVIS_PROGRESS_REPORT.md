@@ -39,3 +39,9 @@
 - Verified by real CLI run against a fake Ollama server: chat, memory, plan/tasks, Dragon Tiger, approvals, blocked commands.
 - NOT verified: real Ollama/models, GUI window, real mic/TTS, live Unity/Unreal editors, real MCP servers.
 - Next task: on Windows, install PySide6, run `python main.py` then `python main.py --gui`, and connect a Unity MCP server.
+
+## Ollama connectivity check (requested)
+- From this sandbox: http://127.0.0.1:11434 is NOT reachable (connection refused, nothing listening on 11434).
+  The sandbox is isolated from your PC, so this says nothing about your Windows machine.
+- Added `python main.py --doctor` (core/doctor.py, 3 tests) so you can verify on Windows; it writes logs/doctor.txt.
+- Full suite now 82 tests, all passing.
