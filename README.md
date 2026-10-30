@@ -48,6 +48,11 @@ Behaviour notes
 - Errors are explicit, e.g. "Ollama unreachable - cannot connect to http://127.0.0.1:11434",
   and the avatar/status dot switch to the offline state.
 
+Names (like other assistants' customisation): Settings > Identity sets **your name** and the
+**assistant name**. Saving updates the window title, the greeting and the model's system
+prompt immediately, and survives a restart. Names are validated (2-24 chars, no control
+characters) and an invalid one is refused without changing anything.
+
 Page honesty
 - Memory / Tasks / Chat History: full CRUD against the real SQLite stores.
 - Game Development, Unity Tools, Unreal Engine Tools: real on-disk project inspection (engine
@@ -71,7 +76,7 @@ curl http://127.0.0.1:11434/api/tags
 ```
 python -m unittest discover -s . -t . -p "test_*.py" -v
 ```
-127 tests (15 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
+138 tests (17 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
 
 ## What works (verified)
 | Area | Module | Verified by |

@@ -57,6 +57,12 @@ class HemaController:
     def workspace_path(self) -> str:
         return str(self.hema.guard.root)
 
+    def identity(self):
+        return self.hema.identity
+
+    def set_identity(self, assistant_name: str = None, user_name: str = None):
+        return self.hema.set_identity(assistant_name, user_name)
+
     def ollama_host(self) -> str:
         return self.hema.config.ollama_host
 

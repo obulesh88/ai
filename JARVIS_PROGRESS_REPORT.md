@@ -122,3 +122,37 @@ system permission - would require explicit approval each time).
 
 Next candidates: reminders with approval-gated OS scheduling, clipboard actions, system
 alert thresholds in the dashboard, plugin list in the GUI Tools page.
+
+## "Run Mark LVI and set same" (requested)
+Attempted to actually run Mark LVI in the sandbox. Progress, with real evidence:
+1. Installed PyQt6 + numpy + sounddevice + google-genai into an isolated venv (429 MB): OK.
+2. `import PyQt6.QtWidgets` -> libEGL.so.1 missing; fixed with a user-space libEGL (as for HEMA).
+3. `import sounddevice` -> PortAudio missing; installed a user-space libportaudio2.
+4. Then libjack.so.0 missing -> installed libjack-jackd2-0.
+5. Final blocker: `libjack.so.0 requires GLIBCXX_3.4.32` which this sandbox's libstdc++ does not
+   provide. Beyond libraries, its engine needs `config/api_keys.json` (Gemini API key = paid
+   cloud API, which contradicts the local-only rule), plus a real microphone, speakers and a
+display, none of which exist here.
+Conclusion: Mark LVI cannot be run in this sandbox, and on Windows it would still require a
+paid Gemini key. It was therefore not installed into the HEMA project and no code was reused.
+
+"Set same" delivered instead - identity customisation (its Settings > assistant name/your name
+equivalent), implemented in HEMA's own architecture:
+- core/identity.py: Identity(assistant_name, user_name), validation (non-empty, <=24 chars, no
+  control chars), greeting by time of day, window title, and a generated system prompt.
+- core/hema.py: loads names from data/settings.json at startup, applies them to the model's
+  system prompt; set_identity() validates, persists and applies immediately (per-field
+  fallback on corrupt values; core does not import interface).
+- interface: Settings page gains a "YOUR NAME / ASSISTANT NAME" panel; saving updates window
+  title, top-bar name and greeting live and reports validation errors instead of saving.
+- Tests: 9 in tests/test_identity.py + 2 GUI tests (rename updates UI; invalid name refused).
+
+Bugs found and fixed while doing this:
+1. Settings' Model panel lost its `addWidget` parent in an earlier edit, so the QComboBox was
+   garbage-collected -> "Internal C++ object already deleted" on the Settings page. Restored.
+2. A page worker's queued signal could land on a closed window -> SettingsPage.shutdown()
+   disconnects and joins the thread from MainWindow.closeEvent.
+3. Identity fallback discarded a valid name when the other field was empty -> now per-field.
+
+Verification: 138 tests OK (venv, PySide6) and 138 OK / 17 skipped (system python);
+`python main.py --gui` starts clean; docs/hema-settings.png refreshed from the real window.

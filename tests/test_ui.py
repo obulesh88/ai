@@ -251,6 +251,30 @@ class UiTests(unittest.TestCase):
             self.assertLessEqual(point.y(), w.height())
             self.assertLessEqual(point.x(), w.width())
 
+    def test_rename_from_settings_updates_ui(self):
+        w = self.make_window()
+        self.connected(w)
+        w.goto("settings")
+        page = w.page_settings
+        page.user_name_edit.setText("Sam")
+        page.assistant_name_edit.setText("Jarvis")
+        page.save_identity()
+        self.pump(0.2)
+        self.assertIn("Jarvis", w.windowTitle())
+        self.assertIn("JARVIS", w.title_label.text())
+        self.assertIn("Sam", w.greeting.text())
+        self.assertEqual(w.controller.identity().assistant_name, "Jarvis")
+        self.assertIn("Saved", page.identity_status.text())
+
+    def test_invalid_rename_is_rejected(self):
+        w = self.make_window()
+        w.goto("settings")
+        page = w.page_settings
+        page.assistant_name_edit.setText("   ")
+        page.save_identity()
+        self.assertIn("Not saved", page.identity_status.text())
+        self.assertEqual(w.controller.identity().assistant_name, "HEMA")
+
     def test_saved_settings_are_applied_on_restart(self):
         w = self.make_window()
         self.connected(w)

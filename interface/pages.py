@@ -131,13 +131,14 @@ class ChatPage(QWidget):
             self.input.clear()
             self.send_requested.emit(text)
 
-    def set_greeting(self, name: str = "Obuleswar") -> None:
-        hour = __import__("time").localtime().tm_hour
-        part = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
-        self.greeting.setText(f"{part}, {name}. I'm HEMA.")
+    def set_greeting(self, identity=None) -> None:
+        from core.identity import Identity
+        identity = identity or Identity()
+        self.greeting.setText(identity.greeting())
+        self.name = identity.assistant_name
         self.greeting_hint.setText(
-            "Ask me anything, or try:  plan: build a snake game  |  remember: I use Unity 2022  |  "
-            "dragon tiger stats")
+            f"Ask {identity.assistant_name} anything, or try:  plan: build a snake game  |  "
+            "remember: I use Unity 2022  |  dragon tiger stats")
 
     def show_empty_state(self, empty: bool) -> None:
         self.greeting.setVisible(empty)
@@ -501,18 +502,61 @@ class SettingsPage(BasePage):
         self._worker = None
         self._model_cache = []
         self.root.addWidget(models)
+
+        identity = GlassPanel("Identity")
+        identity_row = QHBoxLayout()
+        self.user_name_edit = QLineEdit()
+        self.user_name_edit.setMaxLength(24)
+        self.assistant_name_edit = QLineEdit()
+        self.assistant_name_edit.setMaxLength(24)
+        user_label = QLabel("YOUR NAME")
+        user_label.setObjectName("RailLabel")
+        assistant_label = QLabel("ASSISTANT NAME")
+        assistant_label.setObjectName("RailLabel")
+        self.save_identity_btn = small_button("Save names", self.save_identity, primary=True)
+        identity_row.addWidget(user_label)
+        identity_row.addWidget(self.user_name_edit, 1)
+        identity_row.addWidget(assistant_label)
+        identity_row.addWidget(self.assistant_name_edit, 1)
+        identity_row.addWidget(self.save_identity_btn)
+        identity.add_layout(identity_row)
+        self.identity_status = QLabel("Used in the greeting, window title "
+                                      "and the model's instructions.")
+        self.identity_status.setObjectName("PageHint")
+        self.identity_status.setWordWrap(True)
+        identity.add(self.identity_status)
+        self.root.addWidget(identity)
         self.root.addStretch(1)
 
     def refresh(self):
         saved = settings_store.load(self.controller.hema.config.data_dir)
         if saved.get("timeout"):
             self.timeout_spin.setValue(int(float(saved["timeout"])))
+        identity = self.controller.identity()
+        self.user_name_edit.setText(identity.user_name)
+        self.assistant_name_edit.setText(identity.assistant_name)
         self.status.setText("Loading installed models...")
         if self._worker is not None and self._worker.isRunning():
             return
         self._worker = _ModelsWorker(self.controller)
         self._worker.loaded.connect(self._on_models)
         self._worker.start()
+
+    def shutdown(self):
+        """Stops the model-listing worker so no signal can land on a dead widget."""
+        worker = self._worker
+        self._worker = None
+        if worker is None:
+            return
+        try:
+            worker.loaded.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        if worker.isRunning():
+            worker.requestInterruption()
+            if not worker.wait(2500):
+                worker.terminate()
+                worker.wait(500)
 
     def _on_models(self, models, error):
         self.model_combo.clear()
@@ -556,6 +600,23 @@ class SettingsPage(BasePage):
                   "ui_model": self.model_combo.currentText() or self.controller.ui_model()}
         path = settings_store.save(self.controller.hema.config.data_dir, values)
         self.status.setText(f"Saved to {path}. Timeout applies to new requests.")
+
+    def save_identity(self):
+        from core.identity import IdentityError
+        try:
+            data = self.controller.set_identity(
+                assistant_name=self.assistant_name_edit.text(),
+                user_name=self.user_name_edit.text())
+        except IdentityError as exc:
+            self.identity_status.setText(f"Not saved: {exc}")
+            return
+        window = self.window()
+        if hasattr(window, "apply_identity"):
+            window.apply_identity()
+        self.user_name_edit.setText(data["user_name"])
+        self.assistant_name_edit.setText(data["assistant_name"])
+        self.identity_status.setText(
+            f"Saved. You are {data['user_name']} and I am {data['assistant_name']}.")
 
     def reconnect(self):
         self.refresh()

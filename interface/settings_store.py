@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 DEFAULTS: Dict[str, Any] = {"model": "", "ui_model": "qwen3.5:2b", "theme": "cyberpunk",
-                            "timeout": 120}
+                            "timeout": 120, "assistant_name": "HEMA",
+                            "user_name": "Obuleswar"}
 ALLOWED = set(DEFAULTS)
 
 

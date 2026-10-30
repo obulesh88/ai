@@ -15,6 +15,7 @@ from coding.project_inspector import inspect_project, to_json
 from config import Config
 from core.assistant import Assistant
 from core.command_router import route
+from core.identity import Identity
 from core.executor import TaskExecutor
 from core.planner import Planner
 from core.plugin_loader import PluginContext, PluginRegistry
@@ -36,6 +37,8 @@ class Hema:
         self.backups = BackupManager(config.backups_dir)
 
         self.assistant = Assistant(config)
+        self.identity = self._load_identity()
+        self._apply_identity()
         self.memory = MemoryManager(self.data_dir / "hema_memory.db")
         self.tasks = TaskManager(self.data_dir / "hema_tasks.db")
         self.dt = DragonTigerStore(self.data_dir / "dragon_tiger.db")
@@ -54,6 +57,37 @@ class Hema:
         self.plugin_ctx = PluginContext(root=self.guard.root, files=self.files,
                                         memory=self.memory)
         self.recovered = self.tasks.recover()
+
+    # ---- identity ------------------------------------------------
+    def _load_identity(self) -> Identity:
+        """Names come from data/settings.json; a missing/corrupt value falls back."""
+        try:
+            path = Path(self.data_dir) / "settings.json"
+            values = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except (OSError, ValueError):
+            values = {}
+        return Identity.from_settings(values if isinstance(values, dict) else {})
+
+    def _apply_identity(self) -> None:
+        self.assistant.prompts.system_prompt = self.identity.system_prompt()
+
+    def set_identity(self, assistant_name: str = None, user_name: str = None) -> dict:
+        """Validates, stores and applies new names immediately."""
+        self.identity = Identity(
+            assistant_name=assistant_name or self.identity.assistant_name,
+            user_name=user_name or self.identity.user_name)
+        self._apply_identity()
+        path = Path(self.data_dir) / "settings.json"
+        try:
+            values = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except (OSError, ValueError):
+            values = {}
+        if not isinstance(values, dict):
+            values = {}
+        values.update(self.identity.to_dict())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(values, indent=2), encoding="utf-8")
+        return self.identity.to_dict()
 
     # ---- helpers -------------------------------------------------
     def _chat_once(self, messages: List[dict]) -> str:

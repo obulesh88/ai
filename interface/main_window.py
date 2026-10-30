@@ -107,11 +107,20 @@ class MainWindow(QMainWindow):
         self._start_timer(500, self._poll_approvals)
 
         self._apply_saved_settings()
-        self.page_chat.set_greeting()
+        self.apply_identity()
         self._update_empty_state()
         self._update_stats()
         self.goto("chat")
         QTimer.singleShot(180, self._probe_connection)
+
+    def apply_identity(self) -> None:
+        """Applies the configured names to the title, greeting and prompt (already set)."""
+        identity = self.controller.identity()
+        self.setWindowTitle(identity.window_title())
+        self.title_label.setText(identity.assistant_name.upper())
+        self.page_chat.set_greeting(identity)
+        self.statusBar().showMessage(
+            f"{identity.assistant_name} ready for {identity.user_name}")
 
     def _apply_saved_settings(self) -> None:
         """Restores the saved timeout and model preference (the URL stays in .env)."""
@@ -142,7 +151,9 @@ class MainWindow(QMainWindow):
         title_col.setSpacing(0)
         title = QLabel("HEMA AI")
         title.setObjectName("AppTitle")
+        self.title_label = title
         subtitle = QLabel("LOCAL NEURAL ASSISTANT")
+        self.subtitle_label = subtitle
         subtitle.setObjectName("AppSubtitle")
         title_col.addWidget(title)
         title_col.addWidget(subtitle)
@@ -590,8 +601,11 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         for timer in self._timers:
             timer.stop()
-        settings_worker = getattr(self.page_settings, "_worker", None)
-        for thread in (self.worker, self.probe, settings_worker):
+        try:
+            self.page_settings.shutdown()
+        except Exception:
+            pass
+        for thread in (self.worker, self.probe):
             if thread is not None and thread.isRunning():
                 thread.requestInterruption()
                 if not thread.wait(3000):
