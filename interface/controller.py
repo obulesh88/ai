@@ -41,6 +41,32 @@ class HemaController:
         self.hema.approvals.require("delete-memory", f"Memory #{mid}")
         return self.hema.memory.delete(mid)
 
+    def delete_memory_confirmed(self, mid: int) -> bool:
+        """Used by the GUI after the user confirms in a modal dialog (avoids thread deadlock).
+
+        The confirmation is still written to the audit log.
+        """
+        self.hema.audit.record("delete-memory", f"Memory #{mid}", "approved (GUI confirmation)")
+        return self.hema.memory.delete(mid)
+
+    def workspace_path(self) -> str:
+        return str(self.hema.guard.root)
+
+    def ollama_host(self) -> str:
+        return self.hema.config.ollama_host
+
+    def ui_model(self) -> str:
+        return getattr(self.hema.config, "ui_model", "qwen3.5:2b")
+
+    def mcp_servers(self):
+        from game_development.mcp_integration import describe, load_servers
+        cfg = getattr(self.hema.config, "mcp_config", "")
+        return describe(load_servers([cfg] if cfg else []))
+
+    def known_commands(self):
+        from core.command_router import PATTERNS
+        return [(kind, pattern) for kind, pattern in PATTERNS]
+
     def pending_approvals(self) -> List[dict]:
         approver = self.hema.approvals.approver
         return approver.list_pending() if hasattr(approver, "list_pending") else []

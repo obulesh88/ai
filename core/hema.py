@@ -21,7 +21,7 @@ from core.self_update import SelfUpdater
 from core.task_manager import TaskManager
 from game_development import mcp_integration
 from memory.memory_manager import MemoryManager
-from security.permissions import ApprovalManager, AuditLog, WorkspaceGuard
+from security.permissions import ApprovalManager, AuditLog, PermissionDenied, WorkspaceGuard
 
 
 class Hema:
@@ -81,6 +81,9 @@ class Hema:
                 yield output
             else:
                 yield from output
+        except PermissionDenied as e:
+            self.audit.record("blocked", f"{intent.kind}: {e}", "denied")
+            yield f"Not permitted: {e}"
         except OllamaError as e:
             self.audit.record("error", f"{intent.kind}: {e}", "error")
             yield f"Ollama error: {e}"

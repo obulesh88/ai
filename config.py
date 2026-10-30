@@ -29,6 +29,7 @@ class Config:
     logs_dir: Path = BASE_DIR / "logs"
     backups_dir: Path = BASE_DIR / "backups"
     mcp_config: str = ""
+    ui_model: str = "qwen3.5:2b"
 
 
 def load_config() -> Config:
@@ -44,4 +45,5 @@ def load_config() -> Config:
         ),
         workspace_dir=Path(os.environ.get("HEMA_WORKSPACE", str(BASE_DIR / "workspace"))),
         mcp_config=os.environ.get("HEMA_MCP_CONFIG", ""),
+        ui_model=os.environ.get("HEMA_UI_MODEL", "qwen3.5:2b"),
     )

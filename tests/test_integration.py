@@ -104,7 +104,8 @@ class FacadeTests(Base):
     def test_blocked_command_is_rejected(self):
         h = self.hema()
         out = "".join(h.handle("run: format c:"))
-        self.assertIn("PermissionDenied", out)
+        self.assertIn("Not permitted", out)
+        self.assertIn("blocked operation", out)
 
     def test_unapproved_app(self):
         h = self.hema()
