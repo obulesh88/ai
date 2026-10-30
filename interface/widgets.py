@@ -5,7 +5,7 @@ import math
 from PySide6.QtCore import QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Property
 from PySide6.QtGui import (QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath,
                            QPen, QRadialGradient)
-from PySide6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel,
                                QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget)
 
 from interface import theme
@@ -14,18 +14,22 @@ from interface import theme
 class GlassPanel(QFrame):
     """Translucent rounded panel with a neon border and a cyan title bar."""
 
-    def __init__(self, title: str = "", parent=None):
+    def __init__(self, title: str = "", parent=None, compact: bool = False):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, False)
         self._glow = 0.0
+        self._compact = compact
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 10, 14, 12)
-        outer.setSpacing(8)
+        outer.setContentsMargins(12 if compact else 16, 8 if compact else 12,
+                                 12 if compact else 16, 10 if compact else 14)
+        outer.setSpacing(6 if compact else 10)
         header = QHBoxLayout()
+        header.setSpacing(6)
         self.title_label = QLabel(title.upper())
         self.title_label.setObjectName("PanelTitle")
         header.addWidget(self.title_label)
         header.addStretch(1)
+        self.header = header
         outer.addLayout(header)
         self.body = QVBoxLayout()
         self.body.setSpacing(8)
@@ -38,6 +42,11 @@ class GlassPanel(QFrame):
     def add_layout(self, layout, stretch: int = 0):
         self.body.addLayout(layout, stretch)
         return layout
+
+    def add_action(self, widget, stretch: int = 0):
+        """Adds a small control to the right side of the panel header."""
+        self.header.addWidget(widget, stretch)
+        return widget
 
     def set_glow(self, value: float):
         self._glow = max(0.0, min(1.0, value))
@@ -79,7 +88,7 @@ class HoloAvatar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(150, 150)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._phase = 0.0
         self._state = "idle"
@@ -106,8 +115,9 @@ class HoloAvatar(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         ink = QColor(self.STATES[self._state])
-        side = min(self.width(), self.height())
-        cx, cy = self.width() / 2, self.height() / 2
+        caption_height = 26
+        side = min(self.width(), self.height() - caption_height)
+        cx, cy = self.width() / 2, (self.height() - caption_height) / 2
         radius = side * 0.34
 
         halo = QRadialGradient(QPointF(cx, cy), radius * 2.0)
@@ -138,6 +148,25 @@ class HoloAvatar(QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 120), 1.2))
         painter.drawEllipse(QPointF(cx, cy - radius * 0.15), radius * 0.62, radius * 0.62)
 
+        # inner hexagon + moving scanline give the core some structure
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(255, 255, 255, 95), 1.0))
+        hexagon = QPainterPath()
+        hex_r = radius * 0.34
+        for i in range(6):
+            angle = math.radians(60 * i - 90)
+            point = QPointF(cx + hex_r * math.cos(angle),
+                            cy - radius * 0.15 + hex_r * math.sin(angle))
+            hexagon.moveTo(point) if i == 0 else hexagon.lineTo(point)
+        hexagon.closeSubpath()
+        painter.drawPath(hexagon)
+
+        scan_y = cy - radius * 0.15 + math.sin(self._phase * 0.8) * radius * 0.5
+        scan = QColor(255, 255, 255, 55)
+        painter.setPen(QPen(scan, 1.0))
+        half = (radius ** 2 - (scan_y - (cy - radius * 0.15)) ** 2) ** 0.5 * 0.8
+        painter.drawLine(QPointF(cx - half, scan_y), QPointF(cx + half, scan_y))
+
         painter.setPen(Qt.NoPen)
         bars = 22
         amp = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(self._phase * 2))
@@ -155,7 +184,8 @@ class HoloAvatar(QWidget):
         f.setBold(True)
         f.setLetterSpacing(QFont.AbsoluteSpacing, 3)
         painter.setFont(f)
-        painter.drawText(QRectF(0, cy + radius * 1.15 + 10, self.width(), 30),
+        painter.drawText(QRectF(0, self.height() - caption_height + 4, self.width(),
+                                caption_height),
                          Qt.AlignHCenter, self._caption)
         painter.end()
 
@@ -224,27 +254,54 @@ class ChatView(QTextBrowser):
         self._html = []
         self._stream_open = False
         self._stream_buffer = ""
-        self.setHtml(self._wrap(""))
+        self._placeholder = "No messages yet - say hello, or type /help."
+        self._render()
 
     @staticmethod
     def _bubble(kind: str, text: str) -> str:
         if kind == "user":
-            bg, align, who, color = "rgba(0,229,255,0.13)", "right", "YOU", theme.CYAN
+            accent, who, align = theme.CYAN, "YOU", "right"
+            bubble_bg, text_color = "rgba(0,229,255,0.16)", theme.TEXT
         elif kind == "error":
-            bg, align, who, color = "rgba(255,77,109,0.14)", "left", "SYSTEM", theme.DANGER
+            accent, who, align = theme.DANGER, "SYSTEM", "left"
+            bubble_bg, text_color = "rgba(255,77,109,0.18)", theme.TEXT
         else:
-            bg, align, who, color = "rgba(47,107,255,0.16)", "left", "HEMA", theme.VIOLET
-        safe = html.escape(text).replace("\n", "<br>")
-        return (f'<div style="margin:6px 2px; text-align:{align};">'
-                f'<span style="color:{color}; font-size:10px; letter-spacing:2px;">{who}</span><br>'
-                f'<span style="background-color:{bg}; padding:6px 9px; border-radius:8px; '
-                f'font-family:Consolas, monospace; font-size:12px;">{safe}</span></div>')
+            accent, who, align = theme.VIOLET, "HEMA", "left"
+            bubble_bg, text_color = "rgba(47,107,255,0.22)", theme.TEXT
+        safe = html.escape(text).replace(chr(10), "<br>")
+        return (
+            '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+            f'<tr><td align="{align}" style="color:{accent}; font-size:10px; '
+            f'letter-spacing:2px; padding-bottom:2px;">{who}</td></tr>'
+            f'<tr><td align="{align}">'
+            '<table cellspacing="0" cellpadding="7" border="0" '
+            f'style="background-color:{bubble_bg};">'
+            f'<tr><td style="color:{text_color}; font-family:Consolas, monospace; '
+            f'font-size:12px;">{safe}</td></tr></table>'
+            '</td></tr>'
+            '<tr><td style="font-size:6px;">&nbsp;</td></tr>'
+            '</table>'
+        )
 
     def _wrap(self, body: str) -> str:
+        hint = ""
+        if not self._html and not body.strip():
+            hint = ('<div style="color:#5d7f92; margin-top:18px;">'
+                    + html.escape(self._placeholder) + '</div>')
         return ('<html><body style="background:transparent; color:#d8f6ff;">'
-                + "".join(self._html) + body + "</body></html>")
+                + "".join(self._html) + body + hint + "</body></html>")
+
+    def _render(self) -> None:
+        self.setHtml(self._wrap(""))
+        self._scroll_end()
+
+    def set_placeholder(self, text: str) -> None:
+        self._placeholder = text
+        self._render()
 
     def add(self, kind: str, text: str):
+        if self._stream_open:
+            self.end_stream()
         self._html.append(self._bubble(kind, text))
         self._stream_open = False
         self.setHtml(self._wrap(""))
@@ -272,9 +329,23 @@ class ChatView(QTextBrowser):
         self._scroll_end()
         return text
 
+    def clear_all(self) -> None:
+        """Empties the visible transcript (stored history is untouched)."""
+        self._html = []
+        self._stream_open = False
+        self._stream_buffer = ""
+        self._render()
+
+    def is_empty(self) -> bool:
+        return not self._html and not self._stream_open
+
     def transcript(self) -> str:
         import re
         return re.sub(r"<[^>]+>", " ", "".join(self._html))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._scroll_end()
 
     def _scroll_end(self):
         bar = self.verticalScrollBar()
@@ -289,13 +360,174 @@ class QuickTile(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
 
 
-def fade_in(widget: QWidget, duration: int = 420) -> QPropertyAnimation:
-    effect = QGraphicsOpacityEffect(widget)
-    widget.setGraphicsEffect(effect)
-    anim = QPropertyAnimation(effect, b"opacity", widget)
-    anim.setDuration(duration)
-    anim.setStartValue(0.0)
-    anim.setEndValue(1.0)
-    anim.start()
-    widget._fade_anim = anim
-    return anim
+class LogoMark(QWidget):
+    """Small neon hexagon mark used in the top navigation."""
+
+    def __init__(self, size: int = 36, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        side = min(self.width(), self.height()) - 2
+        centre = QPointF(self.width() / 2, self.height() / 2)
+        path = QPainterPath()
+        for i in range(6):
+            angle = math.radians(60 * i - 30)
+            point = QPointF(centre.x() + side / 2 * math.cos(angle),
+                            centre.y() + side / 2 * math.sin(angle))
+            path.moveTo(point) if i == 0 else path.lineTo(point)
+        path.closeSubpath()
+        fill = QLinearGradient(0, 0, side, side)
+        fill.setColorAt(0.0, QColor(theme.BLUE))
+        fill.setColorAt(1.0, QColor(theme.CYAN))
+        painter.setBrush(QBrush(fill))
+        painter.setPen(QPen(QColor(theme.CYAN), 1.2))
+        painter.drawPath(path)
+        painter.setPen(QColor("#031018"))
+        f = QFont(self.font())
+        f.setPointSize(max(8, int(side * 0.38)))
+        f.setBold(True)
+        painter.setFont(f)
+        painter.drawText(self.rect(), Qt.AlignCenter, "H")
+        painter.end()
+
+
+class StatusDot(QWidget):
+    """Small state indicator: online (cyan), busy (violet), offline (red)."""
+
+    COLORS = {"online": theme.OK, "busy": theme.VIOLET, "offline": theme.DANGER,
+              "idle": theme.TEXT_DIM}
+
+    def __init__(self, size: int = 9, parent=None):
+        super().__init__(parent)
+        self._state = "idle"
+        self.setFixedSize(size + 6, size + 6)
+
+    def set_state(self, state: str):
+        self._state = state if state in self.COLORS else "idle"
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        ink = QColor(self.COLORS[self._state])
+        halo = QColor(ink); halo.setAlpha(55)
+        centre = QPointF(self.width() / 2, self.height() / 2)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(halo)
+        painter.drawEllipse(centre, self.width() / 2, self.height() / 2)
+        painter.setBrush(ink)
+        painter.drawEllipse(centre, self.width() / 4, self.height() / 4)
+        painter.end()
+
+
+class NavButton(QPushButton):
+    """Sidebar navigation item with a glyph, a label and an active accent bar."""
+
+    def __init__(self, glyph: str, label: str, parent=None):
+        super().__init__(f"{glyph}   {label}", parent)
+        self.setObjectName("NavButton")
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(38)
+        self.setToolTip(label)
+
+
+class MeterRow(QWidget):
+    """Compact label + bar + value row for CPU / memory / disk."""
+
+    def __init__(self, label: str, parent=None):
+        super().__init__(parent)
+        self._label = label
+        self._value = 0.0
+        self._detail = "--"
+        self._bar = QWidget(self)
+        self._bar.setObjectName("MeterBar")
+        self._bar.setAttribute(Qt.WA_StyledBackground, True)
+        self.setMinimumHeight(40)
+        self.setMaximumHeight(44)
+
+    def set_value(self, percent, detail: str):
+        self._value = 0.0 if percent is None else max(0.0, min(100.0, float(percent)))
+        self._detail = detail
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        width = self.width()
+        small = QFont(self.font()); small.setPointSize(8); small.setBold(True)
+        painter.setFont(small)
+        painter.setPen(QColor(theme.TEXT_DIM))
+        painter.drawText(QRectF(0, 0, width * 0.5, 14), Qt.AlignLeft, self._label.upper())
+        value_font = QFont(self.font()); value_font.setPointSize(8)
+        painter.setFont(value_font)
+        painter.setPen(QColor(theme.TEXT))
+        detail = painter.fontMetrics().elidedText(self._detail, Qt.ElideRight,
+                                                  int(width * 0.6))
+        painter.drawText(QRectF(width * 0.4, 0, width * 0.6, 14), Qt.AlignRight, detail)
+
+        track = QRectF(0, 19, width, 6)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 26))
+        painter.drawRoundedRect(track, 3, 3)
+        ink = QColor(theme.CYAN)
+        if self._value >= 88:
+            ink = QColor(theme.DANGER)
+        elif self._value >= 70:
+            ink = QColor(theme.WARN)
+        filled = QRectF(0, 19, max(3.0, width * self._value / 100.0), 6)
+        gradient = QLinearGradient(filled.topLeft(), filled.topRight())
+        gradient.setColorAt(0.0, QColor(theme.BLUE))
+        gradient.setColorAt(1.0, ink)
+        painter.setBrush(QBrush(gradient))
+        painter.drawRoundedRect(filled, 3, 3)
+        painter.end()
+
+
+def configure_list(widget):
+    """Compact, non-scrolling-sideways list: long text elides with a tooltip instead."""
+    widget.setObjectName("Plain")
+    widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    widget.setTextElideMode(Qt.ElideRight)
+    widget.setWordWrap(False)
+    widget.setUniformItemSizes(True)
+    return widget
+
+
+def chip(text: str, color: str = None) -> QLabel:
+    label = QLabel(text)
+    label.setObjectName("StatusPill")
+    if color:
+        label.setStyleSheet(f"color:{color}; border:1px solid {color}; border-radius:10px;"
+                            "padding:4px 10px; font-size:11px;")
+    return label
+
+
+def elide(label: QLabel, text: str, width: int = None) -> None:
+    """Sets text, eliding with '...' instead of letting the layout clip it."""
+    metrics = label.fontMetrics()
+    available = width if width else max(20, label.width() - 4)
+    label.setText(metrics.elidedText(text, Qt.ElideRight, available))
+    label.setToolTip(text)
+
+
+def fade_window(window: QWidget, duration: int = 380):
+    """Fades the whole window via its opacity property.
+
+    A QGraphicsOpacityEffect is deliberately avoided: it conflicts with the custom
+    paintEvent widgets (Qt logs "painted by one painter at a time").
+    """
+    import os
+    if os.environ.get("QT_QPA_PLATFORM", "").lower() in ("offscreen", "minimal"):
+        return None  # headless platforms have no window opacity
+    animation = QPropertyAnimation(window, b"windowOpacity", window)
+    animation.setDuration(duration)
+    animation.setStartValue(0.0)
+    animation.setEndValue(1.0)
+    animation.start()
+    window._window_fade = animation
+    return animation

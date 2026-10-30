@@ -58,3 +58,34 @@
   asserts the model API received the request (model qwen3.5:2b) and the reply was displayed.
 - NOT verified against your real Ollama. No voice or game automation was added.
 - Next: on Windows run `python main.py --doctor`, then `python main.py --gui`, and report.
+
+## Segment 2 (professional dashboard redesign) - done, headless-verified
+Files added/changed: interface/pages.py (8 pages), interface/settings_store.py,
+interface/main_window.py (rewritten), interface/widgets.py (LogoMark, StatusDot, MeterRow,
+configure_list, fade_window, bubble chat), interface/theme.py (dark palette, nav/meter/
+spinbox/scrollbar rules), interface/dialogs.py (now only ToolsDialog), interface/app.py,
+tests/test_ui.py (15 GUI tests), tests/test_settings_store.py (6 tests).
+
+Defects found and fixed during the redesign:
+1. Replies could render out of order (worker finished before the queued done-signal ran) ->
+   explicit busy flag; a second send is refused and the typed text is restored to the box.
+2. Sending during generation silently dropped the message -> text is kept.
+3. QGraphicsOpacityEffect on the central widget produced 132 "painted by one painter at a
+   time" warnings -> window-opacity fade instead; page fade removed.
+4. Avatar caption clipped at small window sizes -> caption space reserved in paintEvent.
+5. Native spin/combo arrows rendered light -> dark QPalette (Fusion) applied.
+6. Unstyled white horizontal scrollbar in lists -> scrollbars themed, lists never scroll
+   sideways (text elides with a tooltip).
+7. Settings timeout could not be persisted (key missing from the store) -> added + tested.
+8. Settings listed models on the UI thread (could freeze up to the request timeout) -> worker
+   thread; "Use now" no longer performs a network round-trip.
+9. Frozen dataclass mutation in Settings refresh -> removed.
+10. Grammar: "1 memories" -> "1 memory", "unfinished task(s)" -> "1 unfinished task".
+11. Empty states added (greeting, chat placeholder, empty activity/tasks/memory hints).
+
+Verification: 104 tests pass (venv with PySide6 6.8.3; system python without Qt skips 15).
+`python main.py --gui` starts with zero Qt warnings and stays up. Screenshots in docs/ are
+rendered from the real window at 1440x900 and at the 1180x740 minimum size.
+
+Still NOT verified: real Ollama (all demos use a local fake server), Unity/Unreal editor
+automation (needs MCP + editor), real microphone/TTS.

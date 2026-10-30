@@ -16,30 +16,44 @@ python main.py                    # text console
 python main.py --gui              # desktop interface (needs: pip install PySide6)
 ```
 
-## Desktop interface (Segment 2, milestone 1)
+## Desktop interface (HEMA dashboard)
 ```
 pip install "PySide6>=6.5,<6.12"
 python main.py --gui
 ```
-![HEMA desktop](docs/hema-ui.png)
+![HEMA dashboard](docs/hema-ui.png)
+More screens: `docs/hema-ui-chat.png` (conversation), `docs/hema-ui-compact.png`
+(1180x740 minimum size), `docs/hema-settings.png`.
 
-Dark cyberpunk layout: holographic HEMA avatar, glass panels, cyan/blue neon, smooth animations.
+Layout
+- **Top navigation** - hexagon logo, ONLINE/OFFLINE dot + pill, current model, Ollama URL,
+  Settings button. Nothing here is simulated: the pill reflects a real probe of `/api/tags`.
+- **Left sidebar** - New Chat, Chat History, Game Development, Unity Tools, Unreal Engine
+  Tools, Memory, Tasks, Settings. Each opens a real page; the Session panel shows the
+  workspace path and how many tasks are unfinished.
+- **Center workspace** - animated holographic avatar with HEMA's state (idle / processing /
+  offline), a greeting when the conversation is empty, content-sized message bubbles for you
+  and HEMA, streamed replies, and a composer with Send / Stop / Clear chat.
+- **Right rail** - live CPU, memory and disk meters plus network throughput, current model and
+  connection detail, recent activity (audit events + chat activity), running tasks and memory
+  status.
 
-- **Chat panel** - streams from the real HEMA engine (no canned answers). Requests run on a
-  background QThread, so the window never freezes; STOP interrupts a reply.
-- **System overview** - live CPU, memory, disk and network arcs, refreshed every 1.5 s
-  (stdlib only: ctypes on Windows, /proc on Linux; uses psutil if you happen to have it).
-- **Quick access** - Memory, Settings, Tasks, Tools.
-- **Diagnostics** - ACTIVITY (audit log), TERMINAL (live tail of `logs/hema.log`), TASKS
-  (progress + completion report), MEMORY.
-- **Settings** - shows the active model and the Ollama URL, lists installed models and
-  switches the model for the session (`docs/hema-settings.png`).
-- **Connection pill** - ONLINE/OFFLINE plus the exact error, e.g.
-  "Cannot reach Ollama at http://127.0.0.1:11434: Connection refused".
-- **Approval banner** - engine actions that need permission (run a command, delete a memory)
-  appear in the window with Allow / Deny; unanswered requests time out to deny.
+Behaviour notes
+- Chat runs on a QThread; the window never blocks. While a reply streams, further sends are
+  refused and your typed text is kept in the box instead of being lost.
+- Clear chat empties the visible transcript and conversation context; stored history stays in
+  SQLite (History page).
+- Settings persists the chosen model and request timeout to `data/settings.json` and restores
+  them at startup. The Ollama URL is never rewritten - it comes from `.env`.
+- Errors are explicit, e.g. "Ollama unreachable - cannot connect to http://127.0.0.1:11434",
+  and the avatar/status dot switch to the offline state.
 
-The UI prefers `qwen3.5:2b` (`HEMA_UI_MODEL`); the console keeps `HEMA_MODEL`.
+Page honesty
+- Memory / Tasks / Chat History: full CRUD against the real SQLite stores.
+- Game Development, Unity Tools, Unreal Engine Tools: real on-disk project inspection (engine
+  version, scenes, scripts, modules) and MCP server status. Editor automation (creating
+  GameObjects, Blueprints, reading the Console) is **not** implemented and the pages say so
+  instead of faking buttons.
 
 ## Troubleshooting
 Run `python main.py --doctor`. It reports Python, whether port 11434 is open, the Ollama
@@ -57,7 +71,7 @@ curl http://127.0.0.1:11434/api/tags
 ```
 python -m unittest discover -s . -t . -p "test_*.py" -v
 ```
-89 tests (7 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
+104 tests (15 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
 
 ## What works (verified)
 | Area | Module | Verified by |
@@ -76,9 +90,10 @@ python -m unittest discover -s . -t . -p "test_*.py" -v
 | End-to-end command routing | `core/hema.py`, `main.py` | integration + CLI run |
 
 ## GUI verification (headless Qt, in the build sandbox)
-- 7 GUI tests pass: window builds with all panels; a real chat round-trip through the engine
-  (asserts the request reached the model API and the streamed reply is displayed); offline
-  error state; memory command via the UI; approval banner deny path; streaming; screenshot.
+- 15 GUI tests pass: dashboard structure, sidebar navigation, real chat round-trip (asserts
+  the request reached the model API and the reply is displayed), message ordering, typing
+  while busy, clear-chat, streaming, offline state, memory/tasks pages, approval banner,
+  settings save/restore, no widget overflow at the minimum window size, screenshot.
 - `python main.py --gui` runs and stays up.
 - The screenshots in `docs/` are rendered from the real window.
 

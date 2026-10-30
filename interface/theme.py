@@ -20,6 +20,26 @@ FONT_MONO = "Cascadia Mono, Consolas, DejaVu Sans Mono, monospace"
 RADIUS = 14
 
 
+def palette():
+    """Dark QPalette so native-drawn bits (spin/combo arrows, menus) match the theme."""
+    from PySide6.QtGui import QColor, QPalette
+    pal = QPalette()
+    pal.setColor(QPalette.Window, QColor(BG_NAVY))
+    pal.setColor(QPalette.WindowText, QColor(TEXT))
+    pal.setColor(QPalette.Base, QColor("#070f1a"))
+    pal.setColor(QPalette.AlternateBase, QColor(PANEL_SOLID))
+    pal.setColor(QPalette.Text, QColor(TEXT))
+    pal.setColor(QPalette.Button, QColor("#12243a"))
+    pal.setColor(QPalette.ButtonText, QColor(TEXT))
+    pal.setColor(QPalette.BrightText, QColor("#ffffff"))
+    pal.setColor(QPalette.Highlight, QColor(BLUE))
+    pal.setColor(QPalette.HighlightedText, QColor("#04121a"))
+    pal.setColor(QPalette.ToolTipBase, QColor(PANEL_SOLID))
+    pal.setColor(QPalette.ToolTipText, QColor(TEXT))
+    pal.setColor(QPalette.PlaceholderText, QColor(TEXT_DIM))
+    return pal
+
+
 def stylesheet() -> str:
     return f"""
     QWidget {{
@@ -38,6 +58,61 @@ def stylesheet() -> str:
         letter-spacing: 6px;
     }}
     QLabel#AppSubtitle {{ color: {TEXT_DIM}; font-size: 11px; letter-spacing: 3px; }}
+    QLabel#PageTitle {{
+        color: {TEXT};
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }}
+    QLabel#PageHint {{ color: {TEXT_DIM}; font-size: 11px; }}
+    QLabel#Greeting {{
+        color: {TEXT};
+        font-size: 18px;
+        font-weight: 500;
+        letter-spacing: 0px;
+    }}
+    QLabel#RailLabel {{ color: {TEXT_DIM}; font-size: 9px; letter-spacing: 2px; font-weight: 600; }}
+    QLabel#RailValue {{ color: {TEXT}; font-size: 11px; font-family: "{FONT_MONO}"; }}
+    QPushButton#NavButton {{
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-left: 2px solid transparent;
+        border-radius: 8px;
+        padding: 9px 12px;
+        color: {TEXT_DIM};
+        font-size: 12px;
+    }}
+    QPushButton#NavButton:hover {{
+        background: rgba(0, 229, 255, 20);
+        color: {TEXT};
+    }}
+    QPushButton#NavButton:checked {{
+        color: {CYAN};
+        background: rgba(0, 229, 255, 26);
+        border-left: 2px solid {CYAN};
+        font-weight: 600;
+    }}
+    QPushButton#Primary {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {BLUE}, stop:1 {CYAN});
+        color: #04121a;
+        font-weight: 700;
+        border: none;
+    }}
+    QPushButton#Ghost {{
+        background: transparent;
+        border: 1px solid rgba(0, 229, 255, 45);
+        color: {TEXT_DIM};
+        padding: 7px 12px;
+    }}
+    QPushButton#Ghost:hover {{ color: {CYAN}; border-color: {CYAN}; }}
+    QPushButton#Ghost:disabled {{ color: rgba(111,155,179,90); border-color: rgba(0,229,255,25); }}
+    QPushButton#Small {{
+        padding: 4px 10px;
+        font-size: 10px;
+        border-radius: 8px;
+        background: rgba(20, 44, 70, 120);
+    }}
     QLabel#PanelTitle {{
         color: {CYAN};
         font-size: 11px;
@@ -98,17 +173,50 @@ def stylesheet() -> str:
         selection-background-color: rgba(0, 229, 255, 70);
     }}
     QTextBrowser, QPlainTextEdit, QTextEdit, QListWidget {{
-        background: rgba(4, 10, 18, 170);
-        border: 1px solid rgba(0, 229, 255, 35);
+        background: rgba(4, 10, 18, 140);
+        border: 1px solid rgba(0, 229, 255, 28);
         border-radius: 10px;
         padding: 6px;
         font-family: "{FONT_MONO}";
     }}
+    QListWidget#Plain {{
+        background: transparent;
+        border: none;
+        padding: 0px;
+        font-family: "{FONT_UI}";
+        font-size: 11px;
+    }}
+    QListWidget#Plain::item {{ padding: 4px 2px; }}
+    QListWidget#Plain::item:selected {{ background: rgba(0, 229, 255, 40); border-radius: 6px; }}
     QListWidget::item {{ padding: 5px 4px; border-bottom: 1px solid rgba(0,229,255,18); }}
     QListWidget::item:selected {{ background: rgba(0, 229, 255, 50); border-radius: 6px; }}
-    QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
-    QScrollBar::handle:vertical {{ background: rgba(0, 229, 255, 90); border-radius: 4px; min-height: 24px; }}
+    QScrollBar:vertical {{ background: transparent; width: 7px; margin: 2px; }}
+    QScrollBar::handle:vertical {{ background: rgba(0, 229, 255, 30); border-radius: 3px; min-height: 24px; }}
+    QScrollBar::handle:vertical:hover {{ background: rgba(0, 229, 255, 90); }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar:horizontal {{ background: transparent; height: 6px; margin: 0px; }}
+    QScrollBar::handle:horizontal {{ background: rgba(0, 229, 255, 50); border-radius: 3px; min-width: 24px; }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; height: 0; }}
+    QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+    QSpinBox, QDoubleSpinBox {{
+        background: rgba(6, 14, 24, 200);
+        border: 1px solid rgba(0, 229, 255, 60);
+        border-radius: 8px;
+        padding: 5px 8px;
+        min-height: 24px;
+        color: {TEXT};
+        selection-background-color: {BLUE};
+    }}
+    QSpinBox:focus {{ border: 1px solid {CYAN}; }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        width: 16px;
+        background: rgba(0, 229, 255, 20);
+        border: none;
+        border-radius: 4px;
+        margin: 2px;
+    }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: rgba(0, 229, 255, 60); }}
+    QComboBox::drop-down {{ border: none; width: 22px; }}
     QTabWidget::pane {{ border: 1px solid rgba(0, 229, 255, 40); border-radius: 12px; top: -1px; }}
     QTabBar::tab {{
         color: {TEXT_DIM};

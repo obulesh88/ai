@@ -24,6 +24,11 @@ class HemaController:
     def select_model(self, name: str) -> str:
         return self.hema.assistant.models.select(name)
 
+    def use_model(self, name: str) -> str:
+        """Switches the session model without a network call; name must come from models()."""
+        self.hema.assistant.models.current = name
+        return name
+
     def ask(self, text: str):
         """Generator of response chunks; also records an activity log entry."""
         self.log.append(f"you: {text[:120]}")

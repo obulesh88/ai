@@ -1,20 +1,30 @@
-"""HEMA futuristic main window."""
+"""HEMA desktop dashboard: top navigation, sidebar, workspace and right rail."""
 import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QMainWindow, QMessageBox, QProgressBar,
-                               QPushButton, QSizePolicy, QTabWidget, QTextEdit,
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+                               QMainWindow, QPushButton, QSizePolicy, QStackedWidget,
                                QVBoxLayout, QWidget)
 
-from interface import system_stats, theme
-from interface.dialogs import MemoryDialog, SettingsDialog, ToolsDialog
-from interface.widgets import ChatView, GlassPanel, HoloAvatar, QuickTile, StatGauge
+from interface import settings_store, system_stats, theme
+from interface.pages import (ChatPage, GameDevPage, HistoryPage, MemoryPage, SettingsPage,
+                             TasksPage, UnityPage, UnrealPage)
+from interface.widgets import (GlassPanel, LogoMark, MeterRow, StatusDot, configure_list,
+                               elide)
 
-MONO = f"font-family: {theme.FONT_MONO};"
-NETWORK_SCALE_BPS = 10 * 1024 * 1024  # NETWORK arc = total throughput relative to 10 MB/s
+NAV_ITEMS = (
+    ("chat", "+", "New Chat"),
+    ("history", "\u2261", "Chat History"),
+    ("game", "\u25B6", "Game Development"),
+    ("unity", "\u25A3", "Unity Tools"),
+    ("unreal", "\u25B2", "Unreal Engine Tools"),
+    ("memory", "\u25C9", "Memory"),
+    ("tasks", "\u2713", "Tasks"),
+    ("settings", "\u2699", "Settings"),
+)
+PAGE_ORDER = tuple(key for key, _, _ in NAV_ITEMS)
+NETWORK_SCALE_BPS = 10 * 1024 * 1024
 
 
 class ChatWorker(QThread):
@@ -43,7 +53,7 @@ class ChatWorker(QThread):
 class ProbeWorker(QThread):
     """Checks Ollama/model availability without blocking the window."""
 
-    result = Signal(bool, str)
+    result = Signal(object, str)
 
     def __init__(self, controller):
         super().__init__()
@@ -53,11 +63,11 @@ class ProbeWorker(QThread):
         try:
             models = self.controller.models()
             if not models:
-                self.result.emit(False, "Ollama unreachable at " + self.controller.ollama_host())
+                self.result.emit([], "Ollama unreachable - cannot connect to " + self.controller.ollama_host())
                 return
-            self.result.emit(True, f"{len(models)} model(s) available")
+            self.result.emit(models, f"{len(models)} model(s) available")
         except Exception as e:
-            self.result.emit(False, str(e))
+            self.result.emit([], str(e))
 
 
 class MainWindow(QMainWindow):
@@ -65,84 +75,120 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.worker = None
-        self._last_log_pos = 0
+        self.probe = None
         self._pending_id = None
+        self._last_log_pos = 0
+        self._busy = False
 
-        self.setWindowTitle("HEMA AI - Local Neural Assistant")
+        self.setWindowTitle("HEMA AI")
         self.resize(1440, 900)
-        self.setMinimumSize(1120, 720)
+        self.setMinimumSize(1180, 740)
 
         root = QWidget()
         root.setObjectName("RootBackground")
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(16, 12, 16, 8)
+        outer.setContentsMargins(14, 12, 14, 8)
         outer.setSpacing(10)
-        outer.addLayout(self._build_header())
+        outer.addWidget(self._build_top_bar())
         outer.addWidget(self._build_approval_banner())
 
         body = QHBoxLayout()
         body.setSpacing(12)
-        body.addWidget(self._build_left_column(), 0)
-        body.addWidget(self._build_center_column(), 1)
-        body.addWidget(self._build_right_column(), 0)
+        body.addWidget(self._build_sidebar(), 0)
+        body.addWidget(self._build_workspace(), 1)
+        body.addWidget(self._build_right_rail(), 0)
         outer.addLayout(body, 1)
         self.setCentralWidget(root)
 
         self.statusBar().showMessage("Starting HEMA...")
-        self._stats_timer = QTimer(self)
-        self._stats_timer.timeout.connect(self._update_stats)
-        self._stats_timer.start(1500)
-        self._log_timer = QTimer(self)
-        self._log_timer.timeout.connect(self._poll_logs)
-        self._log_timer.start(1200)
-        self._approval_timer = QTimer(self)
-        self._approval_timer.timeout.connect(self._poll_approvals)
-        self._approval_timer.start(500)
-        self._clock_timer = QTimer(self)
-        self._clock_timer.timeout.connect(self._tick_clock)
-        self._clock_timer.start(1000)
+        self._timers = []
+        self._start_timer(2000, self._update_stats)
+        self._start_timer(1500, self._poll_activity)
+        self._start_timer(500, self._poll_approvals)
 
+        self._apply_saved_settings()
+        self.page_chat.set_greeting()
+        self._update_empty_state()
         self._update_stats()
-        self._render_tasks()
-        self._render_memory()
-        QTimer.singleShot(200, self._probe_connection)
+        self.goto("chat")
+        QTimer.singleShot(180, self._probe_connection)
 
-    # ------------------------------------------------------------------ header
-    def _build_header(self) -> QHBoxLayout:
-        header = QHBoxLayout()
-        title_box = QVBoxLayout()
+    def _apply_saved_settings(self) -> None:
+        """Restores the saved timeout and model preference (the URL stays in .env)."""
+        self._saved_model = ""
+        try:
+            saved = settings_store.load(self.controller.hema.config.data_dir)
+            if saved.get("timeout"):
+                self.controller.hema.assistant.client.timeout = float(saved["timeout"])
+            self._saved_model = saved.get("model") or ""
+        except Exception as e:
+            self.statusBar().showMessage(f"Could not load settings: {e}")
+
+    def _start_timer(self, ms: int, slot):
+        timer = QTimer(self)
+        timer.timeout.connect(slot)
+        timer.start(ms)
+        self._timers.append(timer)
+
+    # ------------------------------------------------------------------ top bar
+    def _build_top_bar(self) -> QWidget:
+        panel = GlassPanel(compact=True)
+        panel.title_label.hide()
+        panel.setFixedHeight(66)
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.addWidget(LogoMark(34))
+        title_col = QVBoxLayout()
+        title_col.setSpacing(0)
         title = QLabel("HEMA AI")
         title.setObjectName("AppTitle")
-        sub = QLabel("LOCAL NEURAL ASSISTANT  //  SEGMENT 2")
-        sub.setObjectName("AppSubtitle")
-        title_box.addWidget(title)
-        title_box.addWidget(sub)
-        header.addLayout(title_box)
-        header.addStretch(1)
+        subtitle = QLabel("LOCAL NEURAL ASSISTANT")
+        subtitle.setObjectName("AppSubtitle")
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        row.addLayout(title_col)
+        row.addStretch(1)
 
-        self.conn_pill = QLabel("CONNECTING...")
+        self.status_dot = StatusDot()
+        self.conn_pill = QLabel("CHECKING...")
         self.conn_pill.setObjectName("StatusPill")
-        self.model_pill = QLabel("MODEL: -")
-        self.model_pill.setObjectName("StatusPill")
-        self.url_pill = QLabel(self.controller.ollama_host())
-        self.url_pill.setObjectName("StatusPill")
-        self.clock_pill = QLabel("--:--:--")
-        self.clock_pill.setObjectName("StatusPill")
-        for w in (self.conn_pill, self.model_pill, self.url_pill, self.clock_pill):
-            header.addWidget(w)
-        self._tick_clock()
-        return header
+        row.addWidget(self.status_dot)
+        row.addWidget(self.conn_pill)
+
+        self.model_chip = QLabel("MODEL -")
+        self.model_chip.setObjectName("StatusPill")
+        self.model_chip.setMinimumWidth(150)
+        self.model_chip.setAlignment(Qt.AlignCenter)
+        row.addWidget(self.model_chip)
+
+        self.host_chip = QLabel(self.controller.ollama_host())
+        self.host_chip.setObjectName("StatusPill")
+        row.addWidget(self.host_chip)
+
+        settings_button = QPushButton("\u2699  Settings")
+        settings_button.setObjectName("Small")
+        settings_button.setCursor(Qt.PointingHandCursor)
+        settings_button.clicked.connect(lambda: self.goto("settings"))
+        row.addWidget(settings_button)
+
+        panel.add_layout(row)
+        return panel
 
     def _build_approval_banner(self) -> QWidget:
         self.banner = QWidget()
         row = QHBoxLayout(self.banner)
         row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         self.banner_label = QLabel("")
         self.banner_label.setObjectName("ApprovalBanner")
         self.banner_label.setWordWrap(True)
         allow = QPushButton("Allow")
-        allow.setObjectName("SendButton")
+        allow.setObjectName("Primary")
+        allow.setCursor(Qt.PointingHandCursor)
+        allow.setMinimumWidth(84)
         deny = QPushButton("Deny")
+        deny.setObjectName("Small")
+        deny.setCursor(Qt.PointingHandCursor)
         allow.clicked.connect(lambda: self._decide_approval(True))
         deny.clicked.connect(lambda: self._decide_approval(False))
         row.addWidget(self.banner_label, 1)
@@ -151,179 +197,337 @@ class MainWindow(QMainWindow):
         self.banner.setVisible(False)
         return self.banner
 
-    # ------------------------------------------------------------- left column
-    def _build_left_column(self) -> QWidget:
+    # ------------------------------------------------------------------ sidebar
+    def _build_sidebar(self) -> QWidget:
         col = QWidget()
-        col.setFixedWidth(300)
-        v = QVBoxLayout(col)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(12)
+        col.setFixedWidth(232)
+        layout = QVBoxLayout(col)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
-        quick = GlassPanel("Quick access")
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        tiles = (("\u25C9", "Memory", self._open_memory),
-                 ("\u2699", "Settings", self._open_settings),
-                 ("\u2611", "Tasks", self._focus_tasks),
-                 ("\u26A1", "Tools", self._open_tools))
-        for i, (icon, label, slot) in enumerate(tiles):
-            tile = QuickTile(icon, label)
-            tile.clicked.connect(slot)
-            grid.addWidget(tile, i // 2, i % 2)
-        quick.add_layout(grid)
-        v.addWidget(quick)
+        nav = GlassPanel("Navigation", compact=True)
+        self.nav_buttons = {}
+        for index, (key, glyph, label) in enumerate(NAV_ITEMS):
+            if index in (2, 5):
+                spacer = QWidget()
+                spacer.setFixedHeight(1)
+                nav.add(spacer)
+            button = QPushButton(f"{glyph}   {label}")
+            button.setObjectName("NavButton")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setMinimumHeight(38)
+            button.clicked.connect(lambda _=False, k=key: self.goto(k))
+            nav.add(button)
+            self.nav_buttons[key] = button
+        layout.addWidget(nav)
 
-        monitor = GlassPanel("System overview")
-        gauges = QGridLayout()
-        gauges.setSpacing(4)
-        self.gauge_cpu = StatGauge("CPU")
-        self.gauge_mem = StatGauge("MEMORY")
-        self.gauge_disk = StatGauge("DISK")
-        self.gauge_net = StatGauge("NETWORK", unit="", warn_at=None, danger_at=None)
-        gauges.addWidget(self.gauge_cpu, 0, 0)
-        gauges.addWidget(self.gauge_mem, 0, 1)
-        gauges.addWidget(self.gauge_disk, 1, 0)
-        gauges.addWidget(self.gauge_net, 1, 1)
-        monitor.add_layout(gauges)
-        v.addWidget(monitor, 1)
-
-        self.dt_panel = GlassPanel("Dragon Tiger")
-        self.dt_label = QLabel("no results recorded")
-        self.dt_label.setWordWrap(True)
-        self.dt_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.dt_label.setStyleSheet(f"{MONO} color:{theme.TEXT_DIM}; font-size:11px;")
-        self.dt_panel.add(self.dt_label, 1)
-        v.addWidget(self.dt_panel, 1)
+        info = GlassPanel("Session", compact=True)
+        self.rail_workspace = QLabel()
+        self.rail_workspace.setObjectName("RailValue")
+        self.rail_workspace.setWordWrap(True)
+        info.add(self.rail_workspace)
+        self.rail_unfinished = QLabel()
+        self.rail_unfinished.setObjectName("PageHint")
+        info.add(self.rail_unfinished)
+        layout.addWidget(info)
+        layout.addStretch(1)
+        version = QLabel("HEMA 1.0  \u2022  Segment 2")
+        version.setObjectName("PageHint")
+        layout.addWidget(version)
         return col
 
-    # ----------------------------------------------------------- center column
-    def _build_center_column(self) -> QWidget:
+    # ---------------------------------------------------------------- workspace
+    def _build_workspace(self) -> QWidget:
+        self.stack = QStackedWidget()
+        self.stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        self.page_chat = ChatPage(self.controller)
+        self.page_chat.send_requested.connect(self.send_message)
+        self.page_chat.stop_requested.connect(self.stop_generation)
+        self.page_chat.clear_requested.connect(self.clear_chat)
+        self.avatar = self.page_chat.avatar
+        self.chat = self.page_chat.chat
+        self.input = self.page_chat.input
+        self.send_btn = self.page_chat.send_btn
+        self.stop_btn = self.page_chat.stop_btn
+        self.greeting = self.page_chat.greeting
+
+        self.page_history = HistoryPage(self.controller)
+        self.page_game = GameDevPage(self.controller)
+        self.page_unity = UnityPage(self.controller)
+        self.page_unreal = UnrealPage(self.controller)
+        self.page_memory = MemoryPage(self.controller)
+        self.page_tasks = TasksPage(self.controller)
+        self.page_settings = SettingsPage(self.controller)
+        self.pages = {
+            "chat": self.page_chat,
+            "history": self.page_history,
+            "game": self.page_game,
+            "unity": self.page_unity,
+            "unreal": self.page_unreal,
+            "memory": self.page_memory,
+            "tasks": self.page_tasks,
+            "settings": self.page_settings,
+        }
+        for key in PAGE_ORDER:
+            self.stack.addWidget(self.pages[key])
+        return self.stack
+
+    # --------------------------------------------------------------- right rail
+    def _build_right_rail(self) -> QWidget:
         col = QWidget()
-        v = QVBoxLayout(col)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(12)
+        col.setFixedWidth(312)
+        layout = QVBoxLayout(col)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-        holo = GlassPanel("Holographic interface")
-        self.avatar = HoloAvatar()
-        holo.add(self.avatar, 1)
-        v.addWidget(holo, 5)
+        system = GlassPanel("System", compact=True)
+        self.meter_cpu = MeterRow("CPU")
+        self.meter_mem = MeterRow("Memory")
+        self.meter_disk = MeterRow("Disk")
+        system.add(self.meter_cpu)
+        system.add(self.meter_mem)
+        system.add(self.meter_disk)
+        self.rail_net = QLabel("--")
+        self.rail_net.setObjectName("RailValue")
+        system.add(self.rail_net)
+        layout.addWidget(system)
 
-        chat = GlassPanel("Conversation")
-        self.chat = ChatView()
-        chat.add(self.chat, 1)
-        row = QHBoxLayout()
-        self.input = QLineEdit()
-        self.input.setPlaceholderText("Ask HEMA anything, or give a command (try: /help)")
-        self.input.returnPressed.connect(self.send_message)
-        self.send_btn = QPushButton("SEND")
-        self.send_btn.setObjectName("SendButton")
-        self.send_btn.clicked.connect(self.send_message)
-        self.stop_btn = QPushButton("STOP")
-        self.stop_btn.clicked.connect(self.stop_generation)
-        self.stop_btn.setEnabled(False)
-        row.addWidget(self.input, 1)
-        row.addWidget(self.send_btn)
-        row.addWidget(self.stop_btn)
-        chat.add_layout(row)
-        v.addWidget(chat, 7)
-        return col
+        model = GlassPanel("Model", compact=True)
+        self.rail_model = QLabel("not selected")
+        self.rail_model.setObjectName("RailValue")
+        self.rail_model.setWordWrap(True)
+        self.rail_status = QLabel("checking connection...")
+        self.rail_status.setObjectName("PageHint")
+        self.rail_status.setWordWrap(True)
+        model.add(self.rail_model)
+        model.add(self.rail_status)
+        layout.addWidget(model)
 
-    # ------------------------------------------------------------ right column
-    def _build_right_column(self) -> QWidget:
-        col = QWidget()
-        col.setFixedWidth(392)
-        v = QVBoxLayout(col)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(12)
-
-        self.right_tabs = QTabWidget()
-
-        activity = QWidget()
-        av = QVBoxLayout(activity)
-        av.setContentsMargins(6, 6, 6, 6)
+        activity = GlassPanel("Activity", compact=True)
         self.activity_list = QListWidget()
-        av.addWidget(self.activity_list)
-        self.right_tabs.addTab(activity, "ACTIVITY")
+        configure_list(self.activity_list)
+        activity.add(self.activity_list, 1)
+        layout.addWidget(activity, 3)
 
-        terminal = QWidget()
-        tv = QVBoxLayout(terminal)
-        tv.setContentsMargins(6, 6, 6, 6)
-        self.terminal = QTextEdit()
-        self.terminal.setReadOnly(True)
-        self.terminal.setFont(QFont(theme.FONT_MONO, 9))
-        tv.addWidget(self.terminal)
-        self.right_tabs.addTab(terminal, "TERMINAL")
+        tasks = GlassPanel("Running tasks", compact=True)
+        self.rail_tasks = QLabel("0 pending")
+        self.rail_tasks.setObjectName("RailValue")
+        tasks.add(self.rail_tasks)
+        self.rail_task_list = QListWidget()
+        configure_list(self.rail_task_list)
+        tasks.add(self.rail_task_list, 1)
+        layout.addWidget(tasks, 2)
 
-        tasks = QWidget()
-        tsv = QVBoxLayout(tasks)
-        tsv.setContentsMargins(6, 6, 6, 6)
-        self.task_list = QListWidget()
-        tsv.addWidget(self.task_list, 1)
-        self.task_progress = QProgressBar()
-        self.task_progress.setRange(0, 100)
-        tsv.addWidget(self.task_progress)
-        self.task_detail = QLabel("select a task to see its report")
-        self.task_detail.setWordWrap(True)
-        self.task_detail.setStyleSheet(f"color:{theme.TEXT_DIM}; font-size:11px;")
-        tsv.addWidget(self.task_detail)
-        self.task_list.currentItemChanged.connect(self._show_task_detail)
-        self.right_tabs.addTab(tasks, "TASKS")
-
-        memory = QWidget()
-        mv = QVBoxLayout(memory)
-        mv.setContentsMargins(6, 6, 6, 6)
-        self.memory_list = QListWidget()
-        mv.addWidget(self.memory_list)
-        self.right_tabs.addTab(memory, "MEMORY")
-
-        panel = GlassPanel("Diagnostics")
-        panel.add(self.right_tabs, 1)
-        v.addWidget(panel, 1)
-
-        settings_row = GlassPanel("Model")
-        srow = QHBoxLayout()
-        self.model_combo = QComboBox()
-        self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.model_combo.activated.connect(self._choose_model)
-        refresh = QPushButton("\u21BB")
-        refresh.setToolTip("Refresh model list")
-        refresh.clicked.connect(self._probe_connection)
-        srow.addWidget(self.model_combo, 1)
-        srow.addWidget(refresh)
-        settings_row.add_layout(srow)
-        v.addWidget(settings_row)
+        memory = GlassPanel("Memory", compact=True)
+        self.rail_memory = QLabel("0 memories")
+        self.rail_memory.setObjectName("RailValue")
+        self.memory_snippet = QLabel("")
+        self.memory_snippet.setObjectName("PageHint")
+        self.memory_snippet.setWordWrap(True)
+        memory.add(self.rail_memory)
+        memory.add(self.memory_snippet)
+        layout.addWidget(memory)
         return col
 
-    # ------------------------------------------------------------------ timers
-    def _tick_clock(self):
-        self.clock_pill.setText(time.strftime("%H:%M:%S"))
-
-    def _update_stats(self):
-        s = system_stats.snapshot()
-        self.gauge_cpu.set_value(s["cpu"], os_cpu_threads())
-        mem_detail = (f"{system_stats.human_bytes(s['mem_used'])} / "
-                      f"{system_stats.human_bytes(s['mem_total'])}")
-        self.gauge_mem.set_value(s["mem_percent"], mem_detail)
-        self.gauge_disk.set_value(s["disk_percent"],
-                                  "free " + system_stats.human_bytes(s["disk_free"]))
-        down = system_stats.human_bytes(s["down_bps"], "/s") if s["down_bps"] is not None else "n/a"
-        up = system_stats.human_bytes(s["up_bps"], "/s") if s["up_bps"] is not None else "n/a"
-        # the arc is relative to NETWORK_SCALE_BPS, not a percentage of capacity
-        if s["down_bps"] is not None:
-            net_pct = min(100.0, (s["down_bps"] + s["up_bps"]) / NETWORK_SCALE_BPS * 100)
-            net_detail = f"\u2193{down} \u2191{up}"
-        else:
-            net_pct, net_detail = None, "n/a"
-        self.gauge_net.set_value(net_pct, net_detail)
+    # --------------------------------------------------------------- navigation
+    def goto(self, key: str) -> None:
+        if key not in self.pages:
+            return
+        self.stack.setCurrentWidget(self.pages[key])
+        for name, button in self.nav_buttons.items():
+            button.setChecked(name == key)
+        page = self.pages[key]
+        self._last_key = key
         try:
-            report = self.controller.dt_report().splitlines()
-            summary = [ln.strip() for ln in report if ln.strip().startswith(("Dragon", "Tiger", "Tie"))]
-            self.dt_label.setText("\n".join(summary[:3]) if summary else "no results recorded")
-        except Exception:
-            self.dt_label.setText("statistics unavailable")
+            page.refresh()
+        except Exception as e:
+            self.statusBar().showMessage(f"Could not refresh {key}: {e}")
+        if key == "chat":
+            self.input.setFocus()
+        self.statusBar().showMessage(f"{key.title()} view")
 
-    def _poll_logs(self):
+    def current_page_key(self) -> str:
+        current = self.stack.currentWidget()
+        for key, page in self.pages.items():
+            if page is current:
+                return key
+        return "chat"
+
+    # -------------------------------------------------------------------- chat
+    def send_message(self, text: str = None) -> None:
+        text = (text if text is not None else self.input.text()).strip()
+        if not text:
+            return
+        if self._busy or (self.worker and self.worker.isRunning()):
+            # keep what the user typed instead of silently dropping it
+            self.input.setText(text)
+            self.statusBar().showMessage("Still answering - your message is waiting in the box")
+            return
+        if self.current_page_key() != "chat":
+            self.goto("chat")
+        self.input.clear()
+        self.chat.add("user", text)
+        self.chat.begin_stream()
+        self.page_chat.show_empty_state(False)
+        self.avatar.set_state("thinking")
+        self.status_dot.set_state("busy")
+        self._busy = True
+        self.page_chat.set_busy(True)
+        self.statusBar().showMessage("HEMA is thinking...")
+        self.worker = ChatWorker(self.controller, text)
+        self.worker.chunk.connect(self._on_chunk)
+        self.worker.done.connect(self._on_done)
+        self.worker.failed.connect(self._on_failed)
+        self.worker.start()
+
+    def _on_chunk(self, text: str) -> None:
+        self.chat.append_stream(text)
+
+    def _on_done(self) -> None:
+        final = self.chat.end_stream()
+        self._busy = False
+        self.page_chat.set_busy(False)
+        lowered = final.lower()
+        failed = any(token in lowered for token in
+                     ("ollama error", "not permitted", "not approved", "permissiondenied"))
+        if failed:
+            self.avatar.set_state("error")
+            self.status_dot.set_state("offline" if "ollama error" in lowered else "online")
+            self.statusBar().showMessage("Request failed - see the message above")
+        else:
+            self.avatar.set_state("idle")
+            self.status_dot.set_state("online")
+            self.statusBar().showMessage("Ready")
+        self._refresh_rail()
+
+    def _on_failed(self, message: str) -> None:
+        self.chat.end_stream()
+        self.chat.add("error", message)
+        self.avatar.set_state("error")
+        self.status_dot.set_state("offline")
+        self._busy = False
+        self.page_chat.set_busy(False)
+        self.statusBar().showMessage("Error: " + message)
+
+    def stop_generation(self) -> None:
+        if self.worker and self.worker.isRunning():
+            self.worker.requestInterruption()
+            self.worker.wait(3000)
+            self.chat.end_stream(" [stopped]")
+            self.avatar.set_state("idle")
+            self.status_dot.set_state("online")
+            self._busy = False
+            self.page_chat.set_busy(False)
+            self.statusBar().showMessage("Stopped by you")
+
+    def clear_chat(self) -> None:
+        self.chat.clear_all()
+        self.controller.hema.assistant.conversation.clear()
+        self.controller.hema.audit.record("clear-chat", "visible transcript + context",
+                                          "approved (GUI button)")
+        self._update_empty_state()
+        self.statusBar().showMessage("Chat cleared (stored history kept)")
+
+    def _update_empty_state(self) -> None:
+        empty = self.chat.is_empty()
+        self.page_chat.show_empty_state(empty)
+
+    # -------------------------------------------------------------- connection
+    def _probe_connection(self) -> None:
+        self.conn_pill.setText("CHECKING...")
+        self.status_dot.set_state("idle")
+        self.probe = ProbeWorker(self.controller)
+        self.probe.result.connect(self._on_probe)
+        self.probe.start()
+
+    def _on_probe(self, models, message: str) -> None:
+        if models:
+            current = self.controller.hema.assistant.models.current
+            if not current and models:
+                preference = self._saved_model or self.controller.ui_model()
+                pick = preference if preference in models else (
+                    preference + ":latest" if preference + ":latest" in models else models[0])
+                try:
+                    current = self.controller.select_model(pick)
+                except Exception:
+                    current = models[0]
+            self.conn_pill.setText("ONLINE")
+            self.conn_pill.setStyleSheet(
+                f"color:{theme.OK}; border:1px solid {theme.OK}; border-radius:10px;"
+                "padding:4px 10px; font-size:11px;")
+            self.status_dot.set_state("online")
+            self.model_chip.setText(f"MODEL  {current or '-'}")
+            elide(self.model_chip, f"MODEL  {current or '-'}", 190)
+            self.rail_model.setText(current or "not selected")
+            self.rail_status.setText(f"Ollama reachable ({message})")
+            self.avatar.set_state("idle")
+            self.statusBar().showMessage(f"Connected - {message}")
+        else:
+            self.conn_pill.setText("OFFLINE")
+            self.conn_pill.setStyleSheet(
+                f"color:{theme.DANGER}; border:1px solid {theme.DANGER}; border-radius:10px;"
+                "padding:4px 10px; font-size:11px;")
+            self.status_dot.set_state("offline")
+            self.model_chip.setText("MODEL  -")
+            self.rail_model.setText("not connected")
+            self.rail_status.setText(message)
+            self.avatar.set_state("error")
+            self.statusBar().showMessage(message)
+            self.chat.add("error", message +
+                          "\nStart Ollama, then use Settings > Reconnect.")
+            self.page_chat.show_empty_state(False)
+        self._refresh_rail()
+
+    # ------------------------------------------------------------------- timers
+    def _update_stats(self) -> None:
+        snapshot = system_stats.snapshot()
+        cpu = snapshot["cpu"]
+        self.meter_cpu.set_value(cpu, f"{cpu:.0f}%" if cpu is not None else "n/a")
+        mem_pct = snapshot["mem_percent"]
+        self.meter_mem.set_value(
+            mem_pct,
+            f"{system_stats.human_bytes(snapshot['mem_used'])} / "
+            f"{system_stats.human_bytes(snapshot['mem_total'])}")
+        self.meter_disk.set_value(
+            snapshot["disk_percent"],
+            "free " + system_stats.human_bytes(snapshot["disk_free"]))
+        down = snapshot["down_bps"]
+        up = snapshot["up_bps"]
+        if down is None:
+            self.rail_net.setText("network  n/a")
+        else:
+            self.rail_net.setText(f"\u2193 {system_stats.human_bytes(down, '/s')}   "
+                                  f"\u2191 {system_stats.human_bytes(up, '/s')}")
+
+    def _poll_activity(self) -> None:
         self._render_activity()
+        self._tail_log()
+
+    def _render_activity(self) -> None:
+        entries = self.controller.audit_tail(40)
+        self.activity_list.clear()
+        chat_lines = list(self.controller.log[-6:])
+        if not entries and not chat_lines:
+            self.activity_list.addItem("(no activity yet)")
+        for entry in reversed(entries[-10:]):
+            outcome = entry["outcome"]
+            item = QListWidgetItem(f"{entry['time'][11:]}  {entry['action']}  [{outcome}]")
+            from PySide6.QtGui import QColor
+            if "denied" in outcome:
+                item.setForeground(QColor(theme.DANGER))
+            elif outcome.startswith("approved"):
+                item.setForeground(QColor(theme.OK))
+            item.setToolTip(entry["detail"])
+            self.activity_list.addItem(item)
+        for line in reversed(chat_lines):
+            item = QListWidgetItem(f"chat     {line[:60]}")
+            from PySide6.QtGui import QColor
+            item.setForeground(QColor(theme.TEXT_DIM))
+            self.activity_list.addItem(item)
+
+    def _tail_log(self) -> None:
         log_path = Path(self.controller.hema.config.logs_dir) / "hema.log"
         if not log_path.is_file():
             return
@@ -331,30 +535,13 @@ class MainWindow(QMainWindow):
             size = log_path.stat().st_size
             if size < self._last_log_pos:
                 self._last_log_pos = 0
-            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                f.seek(self._last_log_pos)
-                new = f.read()
-                self._last_log_pos = f.tell()
+            with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(self._last_log_pos)
+                self._last_log_pos = handle.tell()
         except OSError:
             return
-        for line in new.splitlines()[-30:]:
-            self.terminal.append(f"<span style='color:{theme.TEXT_DIM}'>{line}</span>")
 
-    def _render_activity(self):
-        entries = self.controller.audit_tail(60)
-        self.activity_list.clear()
-        if not entries:
-            self.activity_list.addItem("(no activity yet)")
-        for e in reversed(entries):
-            color = theme.OK if e["outcome"].startswith("approved") else theme.WARN
-            if "denied" in e["outcome"]:
-                color = theme.DANGER
-            self.activity_list.addItem(f"{e['time'][11:]}  {e['action']}  [{e['outcome']}]")
-            self.activity_list.item(self.activity_list.count() - 1).setForeground(Qt.gray)
-            self.activity_list.item(self.activity_list.count() - 1).setToolTip(
-                f"{e['detail']} ({color})")
-
-    def _poll_approvals(self):
+    def _poll_approvals(self) -> None:
         pending = self.controller.pending_approvals()
         if not pending:
             if self.banner.isVisible():
@@ -363,173 +550,48 @@ class MainWindow(QMainWindow):
             return
         first = pending[0]
         self._pending_id = first["id"]
-        self.banner_label.setText(
-            f"HEMA needs permission - {first['action']}: {first['detail']}")
+        self.banner_label.setText(f"Permission needed - {first['action']}: {first['detail']}")
         self.banner.setVisible(True)
 
-    def _decide_approval(self, allow: bool):
+    def _decide_approval(self, allow: bool) -> None:
         if self._pending_id is None:
             return
         self.controller.decide_approval(self._pending_id, allow)
-        self.terminal.append(f"<span style='color:{theme.WARN}'>[approval] id={self._pending_id} "
-                            f"{'allowed' if allow else 'denied'}</span>")
+        self.statusBar().showMessage("Permission " + ("granted" if allow else "denied"))
         self._pending_id = None
         self.banner.setVisible(False)
 
-    # ------------------------------------------------------------------- chat
-    def send_message(self):
-        text = self.input.text().strip()
-        if not text:
-            return
-        if self.worker and self.worker.isRunning():
-            return
-        self.input.clear()
-        self.chat.add("user", text)
-        self.chat.begin_stream()
-        self.avatar.set_state("thinking")
-        self.send_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.statusBar().showMessage("HEMA is processing...")
-        self.worker = ChatWorker(self.controller, text)
-        self.worker.chunk.connect(self._on_chunk)
-        self.worker.done.connect(self._on_done)
-        self.worker.failed.connect(self._on_failed)
-        self.worker.start()
-
-    def _on_chunk(self, text: str):
-        self.chat.append_stream(text)
-
-    def _on_done(self):
-        final = self.chat.end_stream()
-        self._finish_request()
-        lowered = final.lower()
-        if "ollama error" in lowered or "permissiondenied" in lowered or "not approved" in lowered:
-            self.avatar.set_state("error")
-            self.statusBar().showMessage("Request failed - see the message above")
-        else:
-            self.avatar.set_state("idle")
-            self.statusBar().showMessage("Ready")
-        self._render_tasks()
-        self._render_memory()
-
-    def _on_failed(self, message: str):
-        self.chat.end_stream()
-        self.chat.add("error", message)
-        self.avatar.set_state("error")
-        self._finish_request()
-        self.statusBar().showMessage("Error: " + message)
-        self.terminal.append(f"<span style='color:{theme.DANGER}'>[error] {message}</span>")
-
-    def _finish_request(self):
-        self.send_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.input.setFocus()
-
-    def stop_generation(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.requestInterruption()
-            self.worker.wait(3000)
-            self.chat.end_stream(" [stopped]")
-            self.avatar.set_state("idle")
-            self._finish_request()
-            self.statusBar().showMessage("Stopped by user")
-
-    # -------------------------------------------------------------- connection
-    def _probe_connection(self):
-        self.conn_pill.setText("CONNECTING...")
-        self.probe = ProbeWorker(self.controller)
-        self.probe.result.connect(self._on_probe)
-        self.probe.start()
-
-    def _on_probe(self, ok: bool, message: str):
-        if ok:
-            models = self.controller.models()
-            self.model_combo.clear()
-            self.model_combo.addItems(models)
-            current = self.controller.hema.assistant.models.current
-            if not current and models:
-                preferred = self.controller.ui_model()
-                pick = preferred if preferred in models else (
-                    preferred + ":latest" if preferred + ":latest" in models else models[0])
-                try:
-                    current = self.controller.select_model(pick)
-                except Exception:
-                    current = models[0]
-            idx = self.model_combo.findText(current or "")
-            if idx >= 0:
-                self.model_combo.setCurrentIndex(idx)
-            self.conn_pill.setText("\u25CF ONLINE")
-            self.conn_pill.setStyleSheet(f"color:{theme.OK}; border:1px solid {theme.OK};"
-                                         f"border-radius:10px; padding:4px 10px; font-size:11px;")
-            self.model_pill.setText(f"MODEL: {current or '-'}")
-            self.statusBar().showMessage(f"Connected - {message}")
-            self.avatar.set_state("idle")
-        else:
-            self.conn_pill.setText("\u25CF OFFLINE")
-            self.conn_pill.setStyleSheet(f"color:{theme.DANGER}; border:1px solid {theme.DANGER};"
-                                         f"border-radius:10px; padding:4px 10px; font-size:11px;")
-            self.statusBar().showMessage(message)
-            self.terminal.append(f"<span style='color:{theme.DANGER}'>[connection] {message}</span>")
-            self.chat.add("error", message + "\nStart Ollama, then press the refresh button next to the model list.")
-            self.avatar.set_state("error")
-
-    def _choose_model(self, index: int):
-        name = self.model_combo.itemText(index)
+    # -------------------------------------------------------------------- rail
+    def _refresh_rail(self) -> None:
         try:
-            used = self.controller.select_model(name)
-            self.model_pill.setText(f"MODEL: {used}")
-            self.terminal.append(f"<span style='color:{theme.CYAN}'>[model] switched to {used}</span>")
+            self.rail_workspace.setText(self.controller.workspace_path())
+            unfinished = len(self.controller.hema.tasks.unfinished())
+            plural = "" if unfinished == 1 else "s"
+            self.rail_unfinished.setText(f"{unfinished} unfinished task{plural}")
+            self.rail_tasks.setText(f"{unfinished} pending")
+            self.rail_task_list.clear()
+            tasks = self.controller.tasks()
+            if not tasks:
+                self.rail_task_list.addItem("(none)")
+            for task in tasks[-5:]:
+                self.rail_task_list.addItem(f"#{task.id} {task.status} {task.progress}%")
+            memories = self.controller.memories()
+            label = "memory" if len(memories) == 1 else "memories"
+            self.rail_memory.setText(f"{len(memories)} {label}")
+            last = memories[-1]["content"] if memories else ""
+            self.memory_snippet.setText(elide_text(last, 60) or "nothing stored yet")
+            current = self.controller.hema.assistant.models.current
+            if current:
+                self.rail_model.setText(current)
         except Exception as e:
-            self.chat.add("error", f"Could not switch model: {e}")
+            self.statusBar().showMessage(f"Rail refresh failed: {e}")
 
-    # ------------------------------------------------------------------ panels
-    def _render_tasks(self):
-        self.task_list.clear()
-        rows = self.controller.tasks()
-        if not rows:
-            self.task_list.addItem("(no tasks yet - try 'plan: <something>')")
-        for t in rows:
-            verified = "verified" if t.verified else t.status
-            self.task_list.addItem(f"#{t.id}  [{verified}]  {t.description[:52]}")
-            item = self.task_list.item(self.task_list.count() - 1)
-            item.setData(Qt.UserRole, (t.id, t.progress, t.report or "(no report yet)"))
-
-    def _show_task_detail(self, current, previous=None):
-        if current is None:
-            return
-        _, progress, report = current.data(Qt.UserRole)
-        self.task_progress.setValue(int(progress))
-        self.task_detail.setText(report)
-
-    def _render_memory(self):
-        self.memory_list.clear()
-        rows = self.controller.memories()
-        if not rows:
-            self.memory_list.addItem("(empty)")
-        for m in rows[-40:]:
-            self.memory_list.addItem(f"#{m['id']} [{m['kind']}] {m['content'][:60]}")
-
-    def _focus_tasks(self):
-        self.right_tabs.setCurrentIndex(2)
-        self._render_tasks()
-
-    def _open_memory(self):
-        MemoryDialog(self.controller, self).exec()
-        self._render_memory()
-
-    def _open_settings(self):
-        SettingsDialog(self.controller, self).exec()
-        current = self.controller.hema.assistant.models.current
-        self.model_pill.setText(f"MODEL: {current or '-'}")
-
-    def _open_tools(self):
-        ToolsDialog(self.controller, self).exec()
-
-    # ------------------------------------------------------------------ close
+    # -------------------------------------------------------------------- close
     def closeEvent(self, event):
-        for timer in (self._stats_timer, self._log_timer, self._approval_timer, self._clock_timer):
+        for timer in self._timers:
             timer.stop()
-        for thread in (self.worker, getattr(self, "probe", None)):
+        settings_worker = getattr(self.page_settings, "_worker", None)
+        for thread in (self.worker, self.probe, settings_worker):
             if thread is not None and thread.isRunning():
                 thread.requestInterruption()
                 if not thread.wait(3000):
@@ -542,6 +604,6 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def os_cpu_threads() -> str:
-    import os
-    return f"{os.cpu_count() or 1} threads"
+def elide_text(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
