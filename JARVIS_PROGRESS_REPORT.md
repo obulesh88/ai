@@ -31,3 +31,11 @@
 - Sandbox cannot install PySide6 (pip SSL certificate verification fails) and has no tkinter, so a GUI can't be built or tested here.
 - User decision: resume on the Windows PC, where PySide6 can be installed and tested.
 - No Segment 2 code written. Segment 1 is unchanged.
+
+## Segments 2-12 (built in sandbox, tests only)
+- Segments 3,4,5,6,7,8,9,10,11,12 implemented with unit/integration tests: 79 tests, all passing.
+- Segment 2 written (interface/app.py + Qt-free interface/controller.py) but NOT executed - PySide6 cannot be installed here.
+- Voice modules written, tested with fakes only (no mic, no TTS engine here).
+- Verified by real CLI run against a fake Ollama server: chat, memory, plan/tasks, Dragon Tiger, approvals, blocked commands.
+- NOT verified: real Ollama/models, GUI window, real mic/TTS, live Unity/Unreal editors, real MCP servers.
+- Next task: on Windows, install PySide6, run `python main.py` then `python main.py --gui`, and connect a Unity MCP server.
