@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #04060c;
+    color: #d8f6ff;
+    font-family: 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom Cyberpunk Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(4, 6, 12, 0.8);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.25);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.5);
+}
+
+/* Glass panel glow effects */
+.glass-panel {
+  background: rgba(10, 22, 38, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel-glow {
+  background: rgba(10, 22, 38, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  box-shadow: 0 0 25px rgba(0, 229, 255, 0.15), inset 0 0 15px rgba(0, 229, 255, 0.05);
+}
+
+.neon-border {
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+}
+
+.neon-text-cyan {
+  color: #00e5ff;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+.neon-text-blue {
+  color: #2f6bff;
+  text-shadow: 0 0 10px rgba(47, 107, 255, 0.5);
+}

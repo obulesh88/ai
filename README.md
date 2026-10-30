@@ -1,169 +1,35 @@
-# HEMA - Local Personal AI Assistant
+# HEMA - Local Personal AI Assistant (React Web Edition)
 
-A modular, locally-run assistant. No paid APIs. Only the Python standard library is
-required for the core; GUI, voice and charts are optional extras.
+Futuristic cyberpunk personal AI assistant rewritten as a React application. Preserves all core architectural features and business logic from the original HEMA system: local model management, multi-step task planning, long-term memory with secret refusal guards, game development project inspection (Unity / Unreal), MCP bridges, Dragon Tiger probability analytics, system diagnostics, and voice controls.
 
-## Quick start (Windows PowerShell)
-```
-cd path\to\hema
-python -m venv .venv
-.venv\Scripts\activate            # optional but recommended
-pip install -r requirements.txt   # core needs nothing extra
-copy .env.example .env            # optional: edit model / host
-ollama serve                      # in another window, if not already running
-python main.py --doctor           # check environment + Ollama, writes logs/doctor.txt
-python main.py                    # text console
-python main.py --gui              # desktop interface (needs: pip install PySide6)
-```
+## Features Ported
 
-## Desktop interface (HEMA dashboard)
-```
-pip install "PySide6>=6.5,<6.12"
-python main.py --gui
-```
-![HEMA dashboard](docs/hema-ui.png)
-More screens: `docs/hema-ui-chat.png` (conversation), `docs/hema-ui-compact.png`
-(1180x740 minimum size), `docs/hema-settings.png`.
+- **Cyberpunk Holographic Interface**: Animated HoloAvatar reacting to idle, processing, speaking, and offline states with pulsating radar rings and frequency equalizers.
+- **Top Navigation Bar**: Live probe of Ollama/AI endpoint (`/api/tags`), active model selector, latency display, and voice toggle.
+- **Conversation Assistant**: Streaming dialogue, command router (`plan:`, `remember:`, `doctor`, `dragon tiger`, `gamedev`, `code:`), content-sized message bubbles, code syntax formatting with clipboard copy.
+- **Memory Vault**: Long-term persistent store with security guard that strictly refuses passwords, API keys, and credential secrets.
+- **Tasks & Planner**: Autonomous multi-step execution graphs with status indicators (`pending`, `running`, `verified`, `completed`, `cancelled`), retry logic, and verification reports.
+- **Game Development Tools**: Workspace inspection for Unity (editor version, scene hierarchy, C# scripts) and Unreal Engine (modules, .uproject files, C++ class generator) with MCP bridges.
+- **Coding Studio**: Interactive code inspector, syntax optimization agent, test runner, and sandboxed console.
+- **Dragon Tiger Probability Analytics**: Real card dealing simulation, statistical distributions, Big Road streak matrix, Bead Plate, and fractional Kelly bet sizing.
+- **System Doctor**: Comprehensive 7-point integrity audit with real-time health score.
+- **Plugins & Note Taker**: Categorized technical notes vault and active plugin manager.
+- **Settings & Identity**: Custom user name and assistant name with instantaneous live updates across greeting and window title.
+- **Live Telemetry HUD**: Real-time animated CPU, memory, disk, and network stream meters with live security audit logging.
 
-Layout
-- **Top navigation** - hexagon logo, ONLINE/OFFLINE dot + pill, current model, Ollama URL,
-  Settings button. Nothing here is simulated: the pill reflects a real probe of `/api/tags`.
-- **Left sidebar** - New Chat, Chat History, Game Development, Unity Tools, Unreal Engine
-  Tools, Memory, Tasks, Settings. Each opens a real page; the Session panel shows the
-  workspace path and how many tasks are unfinished.
-- **Center workspace** - animated holographic avatar with HEMA's state (idle / processing /
-  offline), a greeting when the conversation is empty, content-sized message bubbles for you
-  and HEMA, streamed replies, and a composer with Send / Stop / Clear chat.
-- **Right rail** - live CPU, memory and disk meters plus network throughput, current model and
-  connection detail, recent activity (audit events + chat activity), running tasks and memory
-  status.
+## Tech Stack
 
-Behaviour notes
-- Chat runs on a QThread; the window never blocks. While a reply streams, further sends are
-  refused and your typed text is kept in the box instead of being lost.
-- Clear chat empties the visible transcript and conversation context; stored history stays in
-  SQLite (History page).
-- Settings persists the chosen model and request timeout to `data/settings.json` and restores
-  them at startup. The Ollama URL is never rewritten - it comes from `.env`.
-- Errors are explicit, e.g. "Ollama unreachable - cannot connect to http://127.0.0.1:11434",
-  and the avatar/status dot switch to the offline state.
+- **Framework**: React 18 with TypeScript
+- **Bundler & Dev Server**: Vite
+- **Styling**: Tailwind CSS with custom neon cyberpunk theme palette
+- **Icons**: Lucide React
+- **Audio & Speech**: Web Speech API (STT + TTS) with wake word detection
 
-Names (like other assistants' customisation): Settings > Identity sets **your name** and the
-**assistant name**. Saving updates the window title, the greeting and the model's system
-prompt immediately, and survives a restart. Names are validated (2-24 chars, no control
-characters) and an invalid one is refused without changing anything.
+## Development
 
-Page honesty
-- Memory / Tasks / Chat History: full CRUD against the real SQLite stores.
-- Game Development, Unity Tools, Unreal Engine Tools: real on-disk project inspection (engine
-  version, scenes, scripts, modules) and MCP server status. Editor automation (creating
-  GameObjects, Blueprints, reading the Console) is **not** implemented and the pages say so
-  instead of faking buttons.
-
-## Troubleshooting
-Run `python main.py --doctor`. It reports Python, whether port 11434 is open, the Ollama
-version, installed models, whether your preferred model exists, folder permissions, disk
-space and optional packages. Exit code is 0 only when all critical checks pass.
-
-If "Ollama port" fails on your PC:
-```
-ollama serve            # then open http://127.0.0.1:11434 in a browser
-ollama list             # shows installed models
-curl http://127.0.0.1:11434/api/tags
+```bash
+npm install
+npm run dev
 ```
 
-## Tests
-```
-python -m unittest discover -s . -t . -p "test_*.py" -v
-```
-138 tests (17 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
-
-## What works (verified)
-| Area | Module | Verified by |
-|---|---|---|
-| Ollama text chat, streaming, model discovery | `ai/`, `core/assistant.py` | unit + integration tests |
-| Conversation context, error handling | `core/conversation.py` | unit tests |
-| SQLite memory (search/edit/delete, secret refusal) | `memory/` | unit tests |
-| Permissions, approvals, audit log, workspace guard | `security/` | unit tests |
-| Task planning, execution, retries, recovery | `core/task_manager.py`, `planner.py`, `executor.py` | unit tests |
-| Files, commands, apps, processes, Windows startup | `automation/` | unit tests |
-| Code inspection/editing/fixing | `coding/` | unit tests |
-| Unity/Unreal/MCP project work | `game_development/` | unit tests (file level) |
-| Self-update with backup + rollback | `core/self_update.py` | unit tests |
-| Dragon Tiger statistics | `analytics/` | unit tests |
-| Undo for file actions + outcome reporting | `core/undo.py`, `core/outcome.py` | 23 tests |
-| Drop-in plugins (`plugins/`) | `core/plugin_loader.py` | 23 tests |
-| Voice wake word + controller | `voice/` | unit tests (no real mic/TTS here) |
-| End-to-end command routing | `core/hema.py`, `main.py` | integration + CLI run |
-
-## GUI verification (headless Qt, in the build sandbox)
-- 15 GUI tests pass: dashboard structure, sidebar navigation, real chat round-trip (asserts
-  the request reached the model API and the reply is displayed), message ordering, typing
-  while busy, clear-chat, streaming, offline state, memory/tasks pages, approval banner,
-  settings save/restore, no widget overflow at the minimum window size, screenshot.
-- `python main.py --gui` runs and stays up.
-- The screenshots in `docs/` are rendered from the real window.
-
-## NOT verified yet (needs your PC)
-- Real Ollama and your models (`qwen3-coder-local:latest`, `qwen3.5:2b`) - the GUI
-  demonstrations used a local fake Ollama server, because Ollama is unreachable
-  from the build sandbox
-- The PySide6 window (not installable in the sandbox)
-- Real microphone, wake word and speech output
-- Live Unity Editor and Unreal Editor actions (only file-level operations are tested)
-- Real MCP servers (the probe works against a fake MCP server)
-
-## Commands HEMA understands
-```
-/help /models /model <name> /reset /tasks /status /dt /quit
-plan: <request>            show tasks            remember: <fact>
-recall <text>              forget <id>            inspect: <path>
-open <app>                 run: <command>         list processes
-dragon|tiger|tie result    dragon tiger stats     run with windows
-update yourself            undo                   undo history
-list plugins               run plugin <name> <text or JSON args>
-```
-
-## Undo, plugins and outcomes
-- **Undo** - every file HEMA creates, overwrites or deletes can be taken back. Each action
-  records its own reversal (backup restore or file removal), and `undo` reports
-  `[done]` / `[unverified]` / `[failed]` instead of assuming it worked.
-- **Plugins** - drop a `.py` file in `plugins/` declaring `TOOL` + `run(args, ctx)` and it is
-  loaded at startup. Invalid or broken plugins are reported and skipped, never fatal; the
-  name must be snake_case and cannot shadow built-ins. `plugins/_template.py` is the guide.
-  Plugins are ordinary Python with HEMA's permissions, so only put your own code there.
-  The bundled `note_taker.py` (`run plugin note buy milk`) writes `workspace/notes.md`
-  through the same guard/backup/undo path as everything else.
-- **Outcomes** - things built after this change return `core.outcome.Result`
-  (`done` / `unverified` / `failed`). A plugin that raises or returns nothing is never
-  spoken as a success.
-
-## Inspiration and licensing
-`core/undo.py`, `core/outcome.py`, `core/plugin_loader.py` and `plugins/` were written for
-HEMA after studying the feature list of **[Mark LVI](https://github.com/FatihMakes/Mark-LVI)**
-by FatihMakes (CC BY-NC 4.0, non-commercial). **No code was copied or adapted from that
-project**; only the ideas were used, and they are reimplemented against HEMA's own
-guard/approval/audit architecture. Mark is Gemini-Live based with a 3D head avatar, phone
-dashboard and ~45 skills; HEMA stays local-first (Ollama) and deliberately implements fewer
-features, each with tests.
-
-## Safety
-- All file access is restricted to `workspace/` (env `HEMA_WORKSPACE`).
-- Overwrites, deletes, commands, app launches, microphone use and self-updates need approval.
-- Destructive commands (format, net user, firewall/Defender changes, sudo/runas) are blocked outright.
-- Every approval and denial is written to `logs/audit.log`.
-- Passwords/API keys are refused by memory and file writes, and redacted from command output.
-
-## Layout
-```
-core/ ai/ voice/ memory/ automation/ coding/ game_development/ analytics/ interface/ security/
-tests/ data/ logs/ backups/ workspace/ main.py config.py requirements.txt .env.example
-```
-
-## Notes
-- Unity Editor / Unreal Editor actions that need the running editor (creating GameObjects,
-  Blueprints, verifying in-editor results) are NOT implemented through MCP yet: no MCP server
-  is connected. `game_development/mcp_integration.py` detects configs and really handshakes a
-  server when one is configured.
-- Self-update applies code changes only when you pass explicit changes and approve them; it
-  backs up first and rolls back if compile checks or tests fail.
+Server listens on `http://0.0.0.0:3000`.

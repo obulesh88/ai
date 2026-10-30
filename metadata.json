@@ -1,0 +1,5 @@
+{
+  "name": "HEMA - Local Personal AI Assistant",
+  "description": "Futuristic cyberpunk AI assistant with local model support, task planning, memory, code agent, game dev MCP tools, and system diagnostics.",
+  "entry_point": "index.html"
+}
