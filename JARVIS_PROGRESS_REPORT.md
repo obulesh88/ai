@@ -45,3 +45,16 @@
   The sandbox is isolated from your PC, so this says nothing about your Windows machine.
 - Added `python main.py --doctor` (core/doctor.py, 3 tests) so you can verify on Windows; it writes logs/doctor.txt.
 - Full suite now 82 tests, all passing.
+
+
+## Segment 2 milestone 1 (futuristic desktop UI) - done, verified headless
+- Files: interface/theme.py, interface/system_stats.py, interface/widgets.py,
+  interface/main_window.py, interface/dialogs.py, interface/app.py (+ controller/config updates).
+- PySide6 6.8.3 in a project venv; Qt rendered offscreen after supplying a user-space libEGL
+  (workspace-local, no root, no system changes). PySide6 6.12.0 aborted at interpreter
+  shutdown when grabbing widget images, so requirements pin < 6.12.
+- 7 GUI tests (tests/test_ui.py) pass; `python main.py --gui` starts and stays up.
+- Real chat demonstrated end-to-end through the engine against a fake Ollama server; the test
+  asserts the model API received the request (model qwen3.5:2b) and the reply was displayed.
+- NOT verified against your real Ollama. No voice or game automation was added.
+- Next: on Windows run `python main.py --doctor`, then `python main.py --gui`, and report.

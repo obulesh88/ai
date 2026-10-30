@@ -16,6 +16,31 @@ python main.py                    # text console
 python main.py --gui              # desktop interface (needs: pip install PySide6)
 ```
 
+## Desktop interface (Segment 2, milestone 1)
+```
+pip install "PySide6>=6.5,<6.12"
+python main.py --gui
+```
+![HEMA desktop](docs/hema-ui.png)
+
+Dark cyberpunk layout: holographic HEMA avatar, glass panels, cyan/blue neon, smooth animations.
+
+- **Chat panel** - streams from the real HEMA engine (no canned answers). Requests run on a
+  background QThread, so the window never freezes; STOP interrupts a reply.
+- **System overview** - live CPU, memory, disk and network arcs, refreshed every 1.5 s
+  (stdlib only: ctypes on Windows, /proc on Linux; uses psutil if you happen to have it).
+- **Quick access** - Memory, Settings, Tasks, Tools.
+- **Diagnostics** - ACTIVITY (audit log), TERMINAL (live tail of `logs/hema.log`), TASKS
+  (progress + completion report), MEMORY.
+- **Settings** - shows the active model and the Ollama URL, lists installed models and
+  switches the model for the session (`docs/hema-settings.png`).
+- **Connection pill** - ONLINE/OFFLINE plus the exact error, e.g.
+  "Cannot reach Ollama at http://127.0.0.1:11434: Connection refused".
+- **Approval banner** - engine actions that need permission (run a command, delete a memory)
+  appear in the window with Allow / Deny; unanswered requests time out to deny.
+
+The UI prefers `qwen3.5:2b` (`HEMA_UI_MODEL`); the console keeps `HEMA_MODEL`.
+
 ## Troubleshooting
 Run `python main.py --doctor`. It reports Python, whether port 11434 is open, the Ollama
 version, installed models, whether your preferred model exists, folder permissions, disk
@@ -32,7 +57,7 @@ curl http://127.0.0.1:11434/api/tags
 ```
 python -m unittest discover -s . -t . -p "test_*.py" -v
 ```
-82 tests. They use a fake local Ollama server, so they run without Ollama.
+89 tests (7 GUI tests are skipped when PySide6 is absent). They use a fake local Ollama server, so they run without Ollama.
 
 ## What works (verified)
 | Area | Module | Verified by |
@@ -50,8 +75,17 @@ python -m unittest discover -s . -t . -p "test_*.py" -v
 | Voice wake word + controller | `voice/` | unit tests (no real mic/TTS here) |
 | End-to-end command routing | `core/hema.py`, `main.py` | integration + CLI run |
 
+## GUI verification (headless Qt, in the build sandbox)
+- 7 GUI tests pass: window builds with all panels; a real chat round-trip through the engine
+  (asserts the request reached the model API and the streamed reply is displayed); offline
+  error state; memory command via the UI; approval banner deny path; streaming; screenshot.
+- `python main.py --gui` runs and stays up.
+- The screenshots in `docs/` are rendered from the real window.
+
 ## NOT verified yet (needs your PC)
-- Real Ollama and your models (`qwen3-coder-local:latest`, `qwen3.5:2b`)
+- Real Ollama and your models (`qwen3-coder-local:latest`, `qwen3.5:2b`) - the GUI
+  demonstrations used a local fake Ollama server, because Ollama is unreachable
+  from the build sandbox
 - The PySide6 window (not installable in the sandbox)
 - Real microphone, wake word and speech output
 - Live Unity Editor and Unreal Editor actions (only file-level operations are tested)
